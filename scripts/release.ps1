@@ -46,10 +46,20 @@ Set-Location $root
 
 # --- Tooling sanity checks -------------------------------------------------
 Step "Checking tooling"
-if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+$ghCommand = Get-Command gh -ErrorAction SilentlyContinue
+if ($ghCommand) {
+  $gh = $ghCommand.Source
+} else {
+  $ghCandidates = @(
+    "$env:ProgramFiles\GitHub CLI\gh.exe",
+    "$env:LOCALAPPDATA\GitHub CLI\gh.exe"
+  )
+  $gh = $ghCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if (-not $gh) {
   throw "GitHub CLI 'gh' is not on PATH. Open a new terminal or install via 'winget install GitHub.cli'."
 }
-gh auth status 1>$null 2>$null
+& $gh auth status 1>$null 2>$null
 if ($LASTEXITCODE -ne 0) {
   throw "You are not logged in to GitHub. Run 'gh auth login' once, then re-run this script."
 }
@@ -101,10 +111,10 @@ $hasOrigin = (git remote) -contains "origin"
 if (-not $hasOrigin) {
   Step "Creating GitHub repository"
   if (-not $Repo) { $Repo = "aegis" }
-  gh repo create $Repo --private --source . --remote origin --push
+  & $gh repo create $Repo --private --source . --remote origin --push
 }
 
-$slug = (gh repo view --json nameWithOwner -q .nameWithOwner)
+$slug = (& $gh repo view --json nameWithOwner -q .nameWithOwner)
 if (-not $slug) { throw "Could not determine GitHub repo (owner/name)." }
 Write-Host "    Publishing to $slug" -ForegroundColor DarkGray
 
@@ -152,7 +162,9 @@ $manifest = [ordered]@{
   }
 }
 $latestPath = Join-Path $root "src-tauri\target\release\latest.json"
-$manifest | ConvertTo-Json -Depth 10 | Set-Content $latestPath -Encoding utf8
+$manifestJson = $manifest | ConvertTo-Json -Depth 10
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($latestPath, $manifestJson, $utf8NoBom)
 
 # --- Commit, tag, push -----------------------------------------------------
 Step "Committing and tagging v$Version"
@@ -169,7 +181,7 @@ $msi = Join-Path $root "src-tauri\target\release\bundle\msi\Aegis_${Version}_x64
 $assets = @($setup, $sig, $latestPath)
 if (Test-Path $msi) { $assets += $msi }
 
-gh release create "v$Version" $assets --repo $slug --title "v$Version" --notes $releaseNotes
+& $gh release create "v$Version" $assets --repo $slug --title "v$Version" --notes $releaseNotes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed." }
 
 Step "Done"
