@@ -111,7 +111,7 @@ $hasOrigin = (git remote) -contains "origin"
 if (-not $hasOrigin) {
   Step "Creating GitHub repository"
   if (-not $Repo) { $Repo = "aegis" }
-  & $gh repo create $Repo --private --source . --remote origin --push
+  & $gh repo create $Repo --public --source . --remote origin --push
 }
 
 $slug = (& $gh repo view --json nameWithOwner -q .nameWithOwner)

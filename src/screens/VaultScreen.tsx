@@ -242,9 +242,10 @@ export function VaultScreen() {
               </SheetTrigger>
               <SheetContent className="flex w-[440px] flex-col gap-0 border-border bg-card p-0 sm:max-w-[440px]">
                 <SheetHeader className="border-b px-6 py-5">
-                  <SheetTitle>Security settings</SheetTitle>
+                  <SheetTitle>Security and maintenance</SheetTitle>
                   <SheetDescription>
-                    Everything stays local unless breach checks are enabled.
+                    Review vault protection, update delivery, backups, and optional network
+                    features.
                   </SheetDescription>
                 </SheetHeader>
                 <ScrollArea className="flex-1">
@@ -253,18 +254,48 @@ export function VaultScreen() {
 
                     <Separator />
 
-                    <div className="flex items-center justify-between rounded-xl border bg-background/50 p-4">
+                    <div className="rounded-2xl border bg-background/60 p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border bg-card">
+                          <Shield className="size-4" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Vault posture</Label>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            Entries are encrypted locally before storage. Aegis does not sync vault
+                            content or send telemetry.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-lg border bg-card px-3 py-2">
+                          <p className="text-muted-foreground">Storage</p>
+                          <p className="mt-1 text-foreground">SQLCipher database</p>
+                        </div>
+                        <div className="rounded-lg border bg-card px-3 py-2">
+                          <p className="text-muted-foreground">Entries</p>
+                          <p className="mt-1 text-foreground">AES-256-GCM</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-2xl border bg-background/60 p-4">
                       <div className="pr-3">
                         <Label>HIBP breach checks</Label>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Sends only the first 5 SHA-1 characters of a password.
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                          Optional online check. Aegis sends only the first five SHA-1 characters of
+                          the password hash; the full password never leaves the device.
                         </p>
                       </div>
                       <Switch checked={hibpEnabled} onCheckedChange={setHibpEnabled} />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="timeout">Auto-lock timeout (seconds)</Label>
+                    <div className="space-y-2 rounded-2xl border bg-background/60 p-4">
+                      <Label htmlFor="timeout">Auto-lock timeout</Label>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        Lock the vault after a period of inactivity. Shorter values reduce exposure
+                        on shared or unattended machines.
+                      </p>
                       <Input
                         id="timeout"
                         min={30}
@@ -276,13 +307,16 @@ export function VaultScreen() {
 
                     <Separator />
 
-                    <div className="rounded-xl border bg-background/50 p-4">
+                    <div className="rounded-2xl border bg-background/60 p-4">
                       <div className="flex items-start gap-3">
-                        <Fingerprint className="mt-0.5 size-5 text-foreground" />
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border bg-card">
+                          <Fingerprint className="size-4 text-foreground" />
+                        </div>
                         <div className="space-y-1">
                           <Label>Windows Hello unlock</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Wraps the vault key with Windows DPAPI after a Windows Hello check.
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            Convenience unlock for this Windows profile. The vault key is protected
+                            with Windows DPAPI after a Windows Hello verification.
                           </p>
                         </div>
                       </div>
@@ -319,6 +353,16 @@ export function VaultScreen() {
 
                     <Separator />
 
+                    <div className="space-y-2">
+                      <div>
+                        <Label>Data portability</Label>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                          Export encrypted backups for recovery, restore encrypted backups, or
+                          migrate from Bitwarden CSV. Treat exported files as sensitive.
+                        </p>
+                      </div>
+                    </div>
+
                     <Tabs defaultValue="export">
                       <TabsList className="grid w-full grid-cols-3">
                         <TabsTrigger value="export">Export</TabsTrigger>
@@ -326,6 +370,10 @@ export function VaultScreen() {
                         <TabsTrigger value="csv">CSV</TabsTrigger>
                       </TabsList>
                       <TabsContent value="export" className="space-y-3 pt-4">
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Creates an encrypted backup protected by the passphrase below. Use a
+                          strong passphrase you can recover later.
+                        </p>
                         <Input
                           type="password"
                           value={exportPassphrase}
@@ -342,6 +390,10 @@ export function VaultScreen() {
                         </Button>
                       </TabsContent>
                       <TabsContent value="backup" className="space-y-3 pt-4">
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Restores a previously exported encrypted backup. Existing vault contents
+                          may be replaced by imported data.
+                        </p>
                         <Input
                           type="password"
                           value={backupPassphrase}
@@ -358,8 +410,9 @@ export function VaultScreen() {
                         </Button>
                       </TabsContent>
                       <TabsContent value="csv" className="space-y-3 pt-4">
-                        <p className="text-xs text-muted-foreground">
-                          Parsed and encrypted entirely in Rust.
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Imports a Bitwarden CSV file and encrypts the parsed entries locally in
+                          Rust. Review the imported entries after migration.
                         </p>
                         <Button
                           className="w-full"

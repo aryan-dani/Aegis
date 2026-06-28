@@ -98,12 +98,22 @@ export function AuthScreen() {
           </h1>
           <p className="mt-2 max-w-xs text-sm text-muted-foreground">
             {creating
-              ? "Your master password is never stored. It derives a local key with Argon2id."
-              : "Enter your master password to unlock Aegis."}
+              ? "Choose a master password you can remember. Aegis cannot recover it for you."
+              : "Unlock your local encrypted vault to continue."}
           </p>
         </div>
 
         <div className="rounded-2xl border bg-card p-6 shadow-[0_28px_110px_rgba(0,0,0,0.45)]">
+          <div className="mb-5 rounded-xl border bg-background/60 px-4 py-3">
+            <p className="text-sm font-medium">
+              {creating ? "Local encryption, no account recovery" : "Protected local session"}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {creating
+                ? "Your password derives the vault key with Argon2id. It is never stored, uploaded, or recoverable by Aegis."
+                : "Aegis keeps decrypted secrets available only while the vault is unlocked. Lock the app when you step away."}
+            </p>
+          </div>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
               <Label htmlFor="master-password">Master password</Label>
@@ -180,7 +190,7 @@ export function AuthScreen() {
 
         <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
           <KeyRound className="size-3" />
-          Local-only · AES-256-GCM · SQLCipher · zero telemetry
+          Local-only · AES-256-GCM · SQLCipher · no telemetry
         </p>
       </div>
     </main>
