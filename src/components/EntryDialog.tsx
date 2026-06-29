@@ -183,8 +183,10 @@ export function EntryDialog({ entry, open, onOpenChange, onSave }: Props) {
             </div>
             {input.tags.filter(Boolean).length ? (
               <div className="flex flex-wrap gap-2">
-                {input.tags.filter(Boolean).map((tag) => (
-                  <Badge key={tag} variant="secondary">
+                {input.tags.filter(Boolean).map((tag, index) => (
+                  // Use composite key: tag+index to safely handle duplicates
+                  // during editing (the backend deduplicates via BTreeSet on save).
+                  <Badge key={`${tag}-${index}`} variant="secondary">
                     {tag}
                   </Badge>
                 ))}

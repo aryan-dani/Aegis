@@ -2,60 +2,37 @@ import { useEffect, useMemo, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  Check,
-  Copy,
+  ArrowLeft,
+  Clock,
+  Database,
   Download,
   Fingerprint,
   Folder,
   Import,
   KeyRound,
   Lock,
-  Pencil,
   Plus,
   Settings,
   Shield,
   Tag,
-  Trash2,
-  User,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntryDialog } from "@/components/EntryDialog";
+import { EntryRow } from "@/components/EntryRow";
+import { FilterButton } from "@/components/FilterButton";
 import { SearchBar } from "@/components/SearchBar";
 import { UpdatePanel } from "@/components/UpdatePanel";
 import { api } from "@/lib/ipc";
-import { entryInitials, entryLabel } from "@/lib/format";
-import {
-  isWindowsHelloAvailable,
-} from "@/lib/windowsHello";
+import { entryLabel } from "@/lib/format";
 import { useAuthStore } from "@/store/authStore";
 import { useUiStore } from "@/store/uiStore";
 import { filterEntries, useVaultStore } from "@/store/vaultStore";
@@ -78,9 +55,13 @@ export function VaultScreen() {
   const [biometric, setBiometric] = useState<BiometricStatus | null>(null);
   const [helloAvailable, setHelloAvailable] = useState(false);
   const [helloBusy, setHelloBusy] = useState(false);
+  const [view, setView] = useState<"vault" | "settings">("vault");
 
   useEffect(() => {
     load();
+    api.setInactivityTimeout(inactivitySeconds).catch((cause) => {
+      toast.error("Could not apply auto-lock timeout", { description: String(cause) });
+    });
     refreshBiometric().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
@@ -168,17 +149,22 @@ export function VaultScreen() {
   }
 
   async function updateTimeout(seconds: number) {
+    if (!Number.isFinite(seconds) || seconds < 30) {
+      toast.error("Auto-lock timeout must be at least 30 seconds");
+      return;
+    }
     setInactivitySeconds(seconds);
-    await api.setInactivityTimeout(seconds).catch(() => undefined);
+    try {
+      await api.setInactivityTimeout(seconds);
+    } catch (cause) {
+      toast.error("Could not apply auto-lock timeout", { description: String(cause) });
+    }
   }
 
   async function refreshBiometric() {
-    const [result, available] = await Promise.all([
-      api.biometricStatus(),
-      isWindowsHelloAvailable(),
-    ]);
+    const result = await api.biometricStatus();
     setBiometric(result);
-    setHelloAvailable(available);
+    setHelloAvailable(result.available);
   }
 
   async function enrollBiometric() {
@@ -229,137 +215,191 @@ export function VaultScreen() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Sheet onOpenChange={(value) => value && refreshBiometric().catch(() => undefined)}>
-              <SheetTrigger asChild>
-                <Button variant="secondary">
-                  <Settings className="size-4" />
-                  Settings
-                </Button>
-              </SheetTrigger>
-              <SheetContent className="flex w-[440px] flex-col gap-0 border-border bg-card p-0 sm:max-w-[440px]">
-                <SheetHeader className="border-b px-6 py-5">
-                  <SheetTitle>Security and maintenance</SheetTitle>
-                  <SheetDescription>
-                    Review vault protection, update delivery, backups, and optional network
-                    features.
-                  </SheetDescription>
-                </SheetHeader>
-                <ScrollArea className="flex-1">
-                  <div className="space-y-6 px-6 py-6">
-                    <UpdatePanel />
+            {view === "settings" ? (
+              <Button onClick={() => setView("vault")} variant="secondary">
+                <ArrowLeft className="size-4" />
+                Back to vault
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  setView("settings");
+                  refreshBiometric().catch(() => undefined);
+                }}
+                variant="secondary"
+              >
+                <Settings className="size-4" />
+                Settings
+              </Button>
+            )}
+            <Button onClick={lockNow} title="Lock (Ctrl+Shift+L)" variant="outline">
+              <Lock className="size-4" />
+              Lock
+            </Button>
+          </div>
+        </header>
 
-                    <Separator />
+        {view === "settings" ? (
+          <section className="flex flex-1 flex-col gap-6 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+            <div className="overflow-hidden rounded-3xl border bg-card shadow-[0_24px_90px_rgba(0,0,0,0.32)]">
+              <div className="border-b bg-background/40 px-6 py-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
+                      Control center
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+                      Security and maintenance
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                      Manage vault posture, signed updates, Windows Hello, auto-lock behavior, and
+                      encrypted data movement from one full-size workspace.
+                    </p>
+                  </div>
+                  <Button onClick={() => setView("vault")} variant="outline">
+                    <ArrowLeft className="size-4" />
+                    Return to vault
+                  </Button>
+                </div>
+              </div>
 
-                    <div className="rounded-2xl border bg-background/60 p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border bg-card">
-                          <Shield className="size-4" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Vault posture</Label>
-                          <p className="text-xs leading-relaxed text-muted-foreground">
-                            Entries are encrypted locally before storage. Aegis does not sync vault
-                            content or send telemetry.
-                          </p>
-                        </div>
+              <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+                <div className="space-y-6">
+                  <UpdatePanel />
+
+                  <div className="rounded-2xl border bg-background/60 p-5">
+                    <div className="flex items-start gap-4">
+                      <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
+                        <Shield className="size-5" />
                       </div>
-                      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                        <div className="rounded-lg border bg-card px-3 py-2">
-                          <p className="text-muted-foreground">Storage</p>
-                          <p className="mt-1 text-foreground">SQLCipher database</p>
-                        </div>
-                        <div className="rounded-lg border bg-card px-3 py-2">
-                          <p className="text-muted-foreground">Entries</p>
-                          <p className="mt-1 text-foreground">AES-256-GCM</p>
-                        </div>
+                      <div>
+                        <Label>Vault posture</Label>
+                        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                          Entries are encrypted locally before storage. Aegis does not sync vault
+                          content, collect analytics, or send telemetry.
+                        </p>
                       </div>
                     </div>
+                    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border bg-card p-4">
+                        <p className="text-xs text-muted-foreground">Storage</p>
+                        <p className="mt-1 text-sm font-medium">SQLCipher database</p>
+                      </div>
+                      <div className="rounded-xl border bg-card p-4">
+                        <p className="text-xs text-muted-foreground">Entry encryption</p>
+                        <p className="mt-1 text-sm font-medium">AES-256-GCM</p>
+                      </div>
+                      <div className="rounded-xl border bg-card p-4">
+                        <p className="text-xs text-muted-foreground">Network posture</p>
+                        <p className="mt-1 text-sm font-medium">Manual and opt-in</p>
+                      </div>
+                    </div>
+                  </div>
 
-                    <div className="flex items-center justify-between rounded-2xl border bg-background/60 p-4">
-                      <div className="pr-3">
-                        <Label>HIBP breach checks</Label>
-                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          Optional online check. Aegis sends only the first five SHA-1 characters of
-                          the password hash; the full password never leaves the device.
-                        </p>
+                  <div className="rounded-2xl border bg-background/60 p-5">
+                    <div className="flex items-start justify-between gap-5">
+                      <div className="flex items-start gap-4">
+                        <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
+                          <Database className="size-5" />
+                        </div>
+                        <div>
+                          <Label>HIBP breach checks</Label>
+                          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                            Optional online check. Aegis sends only the first five SHA-1 characters
+                            of the password hash; the full password never leaves the device.
+                          </p>
+                        </div>
                       </div>
                       <Switch checked={hibpEnabled} onCheckedChange={setHibpEnabled} />
                     </div>
+                  </div>
+                </div>
 
-                    <div className="space-y-2 rounded-2xl border bg-background/60 p-4">
-                      <Label htmlFor="timeout">Auto-lock timeout</Label>
-                      <p className="text-xs leading-relaxed text-muted-foreground">
-                        Lock the vault after a period of inactivity. Shorter values reduce exposure
-                        on shared or unattended machines.
-                      </p>
-                      <Input
-                        id="timeout"
-                        min={30}
-                        type="number"
-                        value={inactivitySeconds}
-                        onChange={(event) => updateTimeout(Number(event.target.value))}
-                      />
-                    </div>
-
-                    <Separator />
-
-                    <div className="rounded-2xl border bg-background/60 p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border bg-card">
-                          <Fingerprint className="size-4 text-foreground" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Windows Hello unlock</Label>
-                          <p className="text-xs leading-relaxed text-muted-foreground">
-                            Convenience unlock for this Windows profile. The vault key is protected
-                            with Windows DPAPI after a Windows Hello verification.
-                          </p>
+                <div className="space-y-6">
+                  <div className="rounded-2xl border bg-background/60 p-5">
+                    <div className="flex items-start gap-4">
+                      <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
+                        <Clock className="size-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <Label htmlFor="timeout">Auto-lock timeout</Label>
+                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                          Lock the vault after inactivity. Shorter values reduce exposure on shared
+                          or unattended machines.
+                        </p>
+                        <div className="mt-4 flex items-center gap-3">
+                          <Input
+                            className="max-w-40"
+                            id="timeout"
+                            min={30}
+                            type="number"
+                            value={inactivitySeconds}
+                            onBlur={(event) => updateTimeout(Number(event.target.value))}
+                            onChange={(event) => setInactivitySeconds(Number(event.target.value))}
+                          />
+                          <span className="text-sm text-muted-foreground">seconds</span>
                         </div>
                       </div>
-                      <p className="mt-3 text-xs text-muted-foreground">
-                        {helloAvailable
-                          ? biometric?.enrolled
-                            ? "Enabled for this vault."
-                            : "Available — not yet enabled."
-                          : "Not available in this window."}
-                      </p>
-                      <div className="mt-4">
-                        {biometric?.enrolled ? (
-                          <Button
-                            className="w-full"
-                            disabled={helloBusy}
-                            variant="destructive"
-                            onClick={disableBiometric}
-                          >
-                            {helloBusy ? <Spinner /> : null}
-                            Disable Windows Hello
-                          </Button>
-                        ) : (
-                          <Button
-                            className="w-full"
-                            disabled={!helloAvailable || helloBusy}
-                            onClick={enrollBiometric}
-                          >
-                            {helloBusy ? <Spinner /> : <Fingerprint className="size-4" />}
-                            Enable Windows Hello
-                          </Button>
-                        )}
-                      </div>
                     </div>
+                  </div>
 
-                    <Separator />
-
-                    <div className="space-y-2">
+                  <div className="rounded-2xl border bg-background/60 p-5">
+                    <div className="flex items-start gap-4">
+                      <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
+                        <Fingerprint className="size-5" />
+                      </div>
                       <div>
-                        <Label>Data portability</Label>
-                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          Export encrypted backups for recovery, restore encrypted backups, or
-                          migrate from Bitwarden CSV. Treat exported files as sensitive.
+                        <Label>Windows Hello unlock</Label>
+                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                          Convenience unlock for this Windows profile. The vault key is protected
+                          with Windows DPAPI after an operating-system verification.
                         </p>
                       </div>
                     </div>
+                    <div className="mt-5 rounded-xl border bg-card p-4">
+                      <p className="text-xs text-muted-foreground">Current status</p>
+                      <p className="mt-1 text-sm font-medium">
+                        {helloAvailable
+                          ? biometric?.enrolled
+                            ? "Enabled for this vault"
+                            : "Available, not yet enabled"
+                          : "Not available in this window"}
+                      </p>
+                    </div>
+                    <div className="mt-4">
+                      {biometric?.enrolled ? (
+                        <Button
+                          className="w-full"
+                          disabled={helloBusy}
+                          variant="destructive"
+                          onClick={disableBiometric}
+                        >
+                          {helloBusy ? <Spinner /> : null}
+                          Disable Windows Hello
+                        </Button>
+                      ) : (
+                        <Button
+                          className="w-full"
+                          disabled={!helloAvailable || helloBusy}
+                          onClick={enrollBiometric}
+                        >
+                          {helloBusy ? <Spinner /> : <Fingerprint className="size-4" />}
+                          Enable Windows Hello
+                        </Button>
+                      )}
+                    </div>
+                  </div>
 
-                    <Tabs defaultValue="export">
+                  <div className="rounded-2xl border bg-background/60 p-5">
+                    <div>
+                      <Label>Data portability</Label>
+                      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                        Export encrypted backups for recovery, restore encrypted backups, or migrate
+                        from Bitwarden CSV. Treat exported files as sensitive.
+                      </p>
+                    </div>
+
+                    <Tabs defaultValue="export" className="mt-5">
                       <TabsList className="grid w-full grid-cols-3">
                         <TabsTrigger value="export">Export</TabsTrigger>
                         <TabsTrigger value="backup">Restore</TabsTrigger>
@@ -367,8 +407,7 @@ export function VaultScreen() {
                       </TabsList>
                       <TabsContent value="export" className="space-y-3 pt-4">
                         <p className="text-xs leading-relaxed text-muted-foreground">
-                          Creates an encrypted backup protected by the passphrase below. Use a
-                          strong passphrase you can recover later.
+                          Creates an encrypted backup protected by the passphrase below.
                         </p>
                         <Input
                           type="password"
@@ -387,8 +426,7 @@ export function VaultScreen() {
                       </TabsContent>
                       <TabsContent value="backup" className="space-y-3 pt-4">
                         <p className="text-xs leading-relaxed text-muted-foreground">
-                          Restores a previously exported encrypted backup. Existing vault contents
-                          may be replaced by imported data.
+                          Restores a previously exported encrypted backup.
                         </p>
                         <Input
                           type="password"
@@ -407,8 +445,7 @@ export function VaultScreen() {
                       </TabsContent>
                       <TabsContent value="csv" className="space-y-3 pt-4">
                         <p className="text-xs leading-relaxed text-muted-foreground">
-                          Imports a Bitwarden CSV file and encrypts the parsed entries locally in
-                          Rust. Review the imported entries after migration.
+                          Imports a Bitwarden CSV and encrypts parsed entries locally in Rust.
                         </p>
                         <Button
                           className="w-full"
@@ -422,17 +459,12 @@ export function VaultScreen() {
                       </TabsContent>
                     </Tabs>
                   </div>
-                </ScrollArea>
-              </SheetContent>
-            </Sheet>
-            <Button onClick={lockNow} title="Lock (Ctrl+Shift+L)" variant="outline">
-              <Lock className="size-4" />
-              Lock
-            </Button>
-          </div>
-        </header>
-
-        <div className="grid flex-1 gap-6 lg:grid-cols-[248px_1fr]">
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <div className="grid flex-1 gap-6 lg:grid-cols-[248px_1fr]">
           <aside className="hidden lg:block">
             <div className="sticky top-6 space-y-6">
               <div>
@@ -535,7 +567,8 @@ export function VaultScreen() {
               <EmptyState hasFilters={hasFilters} onAdd={() => setDialogOpen(true)} />
             )}
           </section>
-        </div>
+          </div>
+        )}
       </div>
 
       <EntryDialog
@@ -545,33 +578,6 @@ export function VaultScreen() {
         onSave={onSaveEntry}
       />
     </main>
-  );
-}
-
-function FilterButton({
-  active,
-  count,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  count: number;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-        active
-          ? "bg-secondary text-foreground"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      <span className="truncate">{label}</span>
-      <span className="ml-2 shrink-0 text-xs text-muted-foreground">{count}</span>
-    </button>
   );
 }
 
@@ -595,128 +601,6 @@ function EmptyState({ hasFilters, onAdd }: { hasFilters: boolean; onAdd: () => v
           Add entry
         </Button>
       ) : null}
-    </div>
-  );
-}
-
-function EntryRow({
-  entry,
-  index,
-  onDelete,
-  onEdit,
-}: {
-  entry: VaultEntry;
-  index: number;
-  onDelete: () => Promise<void>;
-  onEdit: () => void;
-}) {
-  const [copied, setCopied] = useState<"password" | "username" | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  async function copy(kind: "password" | "username") {
-    const value = kind === "password" ? entry.password : entry.username;
-    if (!value) return;
-    await api.copySecret(value);
-    setCopied(kind);
-    toast.success(`${kind === "password" ? "Password" : "Username"} copied`, {
-      description: "Clipboard clears in 30 seconds.",
-    });
-    window.setTimeout(() => setCopied((current) => (current === kind ? null : current)), 1500);
-  }
-
-  return (
-    <div
-      className="group flex items-center gap-3 rounded-xl border bg-card/60 p-3 transition-all duration-200 hover:border-foreground/25 hover:bg-card animate-in fade-in-0 slide-in-from-bottom-1"
-      style={{ animationDelay: `${Math.min(index, 12) * 25}ms` }}
-    >
-      <button
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-        onClick={onEdit}
-        type="button"
-      >
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background font-mono text-xs font-semibold text-muted-foreground">
-          {entryInitials(entry)}
-        </div>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{entryLabel(entry)}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            {entry.username || "No username"}
-          </div>
-        </div>
-      </button>
-
-      <div className="flex shrink-0 items-center gap-2">
-        {entry.folder ? (
-          <Badge className="hidden md:inline-flex" variant="outline">
-            {entry.folder}
-          </Badge>
-        ) : null}
-        <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
-          {entry.username ? (
-            <Button
-              aria-label="Copy username"
-              size="icon-sm"
-              title="Copy username"
-              variant="ghost"
-              onClick={() => copy("username")}
-            >
-              {copied === "username" ? <Check className="size-4" /> : <User className="size-4" />}
-            </Button>
-          ) : null}
-          <Button
-            aria-label="Copy password"
-            size="icon-sm"
-            title="Copy password"
-            variant="ghost"
-            onClick={() => copy("password")}
-          >
-            {copied === "password" ? <Check className="size-4" /> : <Copy className="size-4" />}
-          </Button>
-          <Button
-            aria-label="Edit entry"
-            size="icon-sm"
-            title="Edit"
-            variant="ghost"
-            onClick={onEdit}
-          >
-            <Pencil className="size-4" />
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button aria-label="Delete entry" size="icon-sm" title="Delete" variant="ghost">
-                <Trash2 className="size-4" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent className="border-border bg-card">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {entryLabel(entry)} will be permanently removed from the vault. This cannot be
-                  undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  disabled={deleting}
-                  onClick={async (event) => {
-                    event.preventDefault();
-                    setDeleting(true);
-                    try {
-                      await onDelete();
-                    } finally {
-                      setDeleting(false);
-                    }
-                  }}
-                >
-                  {deleting ? <Spinner /> : null}
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      </div>
     </div>
   );
 }

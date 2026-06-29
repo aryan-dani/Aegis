@@ -21,15 +21,21 @@ pub fn is_unlocked(state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn create_vault(app: AppHandle, state: State<'_, AppState>, master_password: String) -> Result<()> {
+pub fn create_vault(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    master_password: String,
+) -> Result<()> {
     if db::vault_exists(&app)? {
         return Err(AegisError::VaultExists);
     }
+    let mut master_password = master_password;
     validate_master_password(&master_password)?;
 
     let salt = random_bytes::<SALT_LEN>();
     let meta = db::VaultMeta::new(&salt);
     let key = derive_key(&master_password, &salt, &KdfParams::default())?;
+    master_password.zeroize();
     let conn = db::open_encrypted(&app, &key)?;
     db::migrate(&conn)?;
     let verifier = encrypt(&key, VERIFIER)?;
@@ -40,34 +46,41 @@ pub fn create_vault(app: AppHandle, state: State<'_, AppState>, master_password:
 }
 
 #[tauri::command]
-pub fn unlock_vault(app: AppHandle, state: State<'_, AppState>, master_password: String) -> Result<()> {
+pub fn unlock_vault(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    master_password: String,
+) -> Result<()> {
     state.ensure_not_locked_out()?;
     if !db::vault_exists(&app)? {
         return Err(AegisError::VaultMissing);
     }
 
+    let mut master_password = master_password;
     let meta = db::read_meta(&app)?;
     let mut salt = meta.salt()?;
     let key = derive_key(&master_password, &salt, &meta.kdf)?;
+    master_password.zeroize();
     salt.zeroize();
 
     let result = (|| -> Result<()> {
-        let conn = db::open_encrypted(&app, &key)?;
-        db::migrate(&conn)?;
-        let verifier = db::verifier(&conn)?;
-        let plaintext = decrypt(&key, &verifier)?;
+        let conn = db::open_encrypted(&app, &key).map_err(|_| AegisError::InvalidMasterPassword)?;
+        let verifier = db::verifier(&conn).map_err(|_| AegisError::InvalidMasterPassword)?;
+        let plaintext = decrypt(&key, &verifier).map_err(|_| AegisError::InvalidMasterPassword)?;
         if !constant_time_eq(&plaintext, VERIFIER) {
             return Err(AegisError::InvalidMasterPassword);
         }
+        db::migrate(&conn)?;
         Ok(())
     })();
 
     match result {
         Ok(()) => state.set_key(key),
-        Err(_) => {
+        Err(AegisError::InvalidMasterPassword) => {
             state.record_failed_unlock();
             Err(AegisError::InvalidMasterPassword)
         }
+        Err(error) => Err(error),
     }
 }
 

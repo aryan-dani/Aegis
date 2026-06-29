@@ -22,19 +22,18 @@ pub fn validate_user_file_path(path: &str, must_exist: bool) -> Result<PathBuf> 
     }
 
     let normalized = if must_exist {
-        std::fs::canonicalize(&candidate).map_err(|_| {
-            AegisError::InvalidInput("backup file was not found".to_string())
-        })?
+        std::fs::canonicalize(&candidate)
+            .map_err(|_| AegisError::InvalidInput("backup file was not found".to_string()))?
     } else {
-        let parent = candidate.parent().ok_or_else(|| {
-            AegisError::InvalidInput("invalid file path".to_string())
-        })?;
+        let parent = candidate
+            .parent()
+            .ok_or_else(|| AegisError::InvalidInput("invalid file path".to_string()))?;
         let canonical_parent = std::fs::canonicalize(parent).map_err(|_| {
             AegisError::InvalidInput("export destination folder was not found".to_string())
         })?;
-        let file_name = candidate.file_name().ok_or_else(|| {
-            AegisError::InvalidInput("invalid file path".to_string())
-        })?;
+        let file_name = candidate
+            .file_name()
+            .ok_or_else(|| AegisError::InvalidInput("invalid file path".to_string()))?;
         canonical_parent.join(file_name)
     };
 
@@ -47,6 +46,7 @@ pub fn validate_user_file_path(path: &str, must_exist: bool) -> Result<PathBuf> 
     Ok(normalized)
 }
 
+#[cfg(windows)]
 fn is_allowed_user_path(path: &Path) -> bool {
     let blocked_prefixes = [
         std::env::var("SystemRoot")
@@ -60,4 +60,12 @@ fn is_allowed_user_path(path: &Path) -> bool {
     !blocked_prefixes
         .iter()
         .any(|prefix| path.starts_with(prefix))
+}
+
+/// Non-Windows platforms do not have the same system-directory layout.
+/// Allow all absolute paths for now; extend with platform-appropriate
+/// blocklists when adding macOS or Linux support.
+#[cfg(not(windows))]
+fn is_allowed_user_path(_path: &Path) -> bool {
+    true
 }

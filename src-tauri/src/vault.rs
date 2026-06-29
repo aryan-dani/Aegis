@@ -56,10 +56,13 @@ pub struct ExportFile {
 }
 
 #[tauri::command]
-pub fn add_entry(app: AppHandle, state: State<'_, AppState>, input: EntryInput) -> Result<VaultEntry> {
+pub fn add_entry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: EntryInput,
+) -> Result<VaultEntry> {
     let key = Zeroizing::new(state.key_copy()?);
     let conn = db::open_encrypted(&app, &key)?;
-    db::migrate(&conn)?;
     let now = chrono::Utc::now().to_rfc3339();
     let entry = VaultEntry {
         id: Uuid::new_v4().to_string(),
@@ -74,7 +77,13 @@ pub fn add_entry(app: AppHandle, state: State<'_, AppState>, input: EntryInput) 
     };
     let plaintext = Zeroizing::new(serde_json::to_vec(&entry)?);
     let encrypted = encrypt(&key, &plaintext)?;
-    db::upsert_entry(&conn, &entry.id, &encrypted, &entry.created_at, &entry.updated_at)?;
+    db::upsert_entry(
+        &conn,
+        &entry.id,
+        &encrypted,
+        &entry.created_at,
+        &entry.updated_at,
+    )?;
     Ok(entry)
 }
 
@@ -113,7 +122,12 @@ pub fn search_vault(
             entry.url.to_lowercase().contains(&needle)
                 || entry.username.to_lowercase().contains(&needle)
                 || entry.notes.to_lowercase().contains(&needle)
-                || entry.folder.as_deref().unwrap_or("").to_lowercase().contains(&needle)
+                || entry
+                    .folder
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(&needle)
                 || entry
                     .tags
                     .iter()
@@ -146,7 +160,13 @@ pub fn update_entry(
     };
     let plaintext = Zeroizing::new(serde_json::to_vec(&entry)?);
     let encrypted = encrypt(&key, &plaintext)?;
-    db::upsert_entry(&conn, &entry.id, &encrypted, &entry.created_at, &entry.updated_at)?;
+    db::upsert_entry(
+        &conn,
+        &entry.id,
+        &encrypted,
+        &entry.created_at,
+        &entry.updated_at,
+    )?;
     Ok(entry)
 }
 
@@ -180,7 +200,10 @@ pub fn list_tags(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Strin
 }
 
 #[tauri::command]
-pub fn generate_password(state: State<'_, AppState>, options: GeneratePasswordOptions) -> Result<String> {
+pub fn generate_password(
+    state: State<'_, AppState>,
+    options: GeneratePasswordOptions,
+) -> Result<String> {
     let _ = state.key_copy()?;
     let length = options.length.clamp(8, 128);
     let mut pools: Vec<&[u8]> = Vec::new();
@@ -255,6 +278,12 @@ pub fn import_encrypted_backup(
 ) -> Result<Vec<VaultEntry>> {
     let contents = fs::read_to_string(validate_user_file_path(&path, true)?)?;
     let file: ExportFile = serde_json::from_str(&contents)?;
+    if file.version != 1 {
+        return Err(AegisError::InvalidInput(format!(
+            "unsupported backup version {}; only version 1 is supported",
+            file.version
+        )));
+    }
     let salt = base64::engine::general_purpose::STANDARD_NO_PAD
         .decode(file.salt_b64)
         .map_err(|_| AegisError::InvalidInput("invalid backup".to_string()))?;
@@ -296,12 +325,25 @@ pub fn import_bitwarden_csv(
             .split(',')
             .map(str::to_string)
             .collect::<Vec<_>>();
+
+        // Bitwarden's "name" column holds the entry title. Since VaultEntry has
+        // no dedicated title field, prepend it to the URL when no URL is present,
+        // otherwise store it in the notes so it is not silently discarded.
+        let name = field("name");
+        let url = field("login_uri");
+        let mut notes = field("notes");
+        if !name.is_empty() && !url.is_empty() && !notes.is_empty() {
+            notes = format!("Name: {}\n\n{}", name, notes);
+        } else if !name.is_empty() && !url.is_empty() {
+            notes = format!("Name: {}", name);
+        }
+
         entries.push(VaultEntry {
             id: Uuid::new_v4().to_string(),
-            url: field("login_uri"),
+            url: if url.is_empty() { name.clone() } else { url },
             username: field("login_username"),
             password: field("login_password"),
-            notes: field("notes"),
+            notes,
             folder,
             tags: clean_tags(tags),
             created_at: now.clone(),
@@ -318,7 +360,6 @@ fn insert_imported_entries(
 ) -> Result<Vec<VaultEntry>> {
     let key = Zeroizing::new(state.key_copy()?);
     let conn = db::open_encrypted(&app, &key)?;
-    db::migrate(&conn)?;
     for entry in &mut entries {
         if entry.id.trim().is_empty() {
             entry.id = Uuid::new_v4().to_string();
@@ -326,7 +367,13 @@ fn insert_imported_entries(
         entry.updated_at = chrono::Utc::now().to_rfc3339();
         let plaintext = Zeroizing::new(serde_json::to_vec(entry)?);
         let encrypted = encrypt(&key, &plaintext)?;
-        db::upsert_entry(&conn, &entry.id, &encrypted, &entry.created_at, &entry.updated_at)?;
+        db::upsert_entry(
+            &conn,
+            &entry.id,
+            &encrypted,
+            &entry.created_at,
+            &entry.updated_at,
+        )?;
     }
     Ok(entries)
 }

@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
@@ -15,7 +14,6 @@ function App() {
 
   useEffect(() => {
     initialize();
-    getCurrentWindow().setContentProtected(true).catch(() => undefined);
     const unlisten = listen<string>("vault-locked", (event) => {
       forceLocked();
       useVaultStore.getState().wipe();

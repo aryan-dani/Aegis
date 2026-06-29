@@ -39,8 +39,10 @@ export function PasswordGenerator({ onUse }: Props) {
 
   useEffect(() => {
     generate();
+    // Re-generate whenever any option changes so the preview is always
+    // consistent with the current settings without requiring a manual click.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [options.length, options.uppercase, options.lowercase, options.numbers, options.symbols]);
 
   async function copy() {
     if (!generated) return;

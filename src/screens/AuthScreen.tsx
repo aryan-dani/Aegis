@@ -7,9 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { StrengthMeter } from "@/components/StrengthMeter";
 import { api } from "@/lib/ipc";
-import {
-  isWindowsHelloAvailable,
-} from "@/lib/windowsHello";
 import { useAuthStore } from "@/store/authStore";
 import type { BiometricStatus } from "@/types";
 
@@ -30,10 +27,11 @@ export function AuthScreen() {
       setBiometric(null);
       return;
     }
-    Promise.all([api.biometricStatus(), isWindowsHelloAvailable()])
-      .then(([status, available]) => {
+    api
+      .biometricStatus()
+      .then((status) => {
         setBiometric(status);
-        setHelloAvailable(available);
+        setHelloAvailable(status.available);
       })
       .catch(() => {
         setBiometric(null);

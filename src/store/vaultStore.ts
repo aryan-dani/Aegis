@@ -48,17 +48,20 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
   add: async (input) => {
     const entry = await api.addEntry(input);
-    await get().load();
+    const entries = [entry, ...get().entries];
+    set({ entries, ...deriveFacets(entries), loaded: true, error: null });
     return entry;
   },
   update: async (id, input) => {
     const entry = await api.updateEntry(id, input);
-    await get().load();
+    const entries = [entry, ...get().entries.filter((current) => current.id !== id)];
+    set({ entries, ...deriveFacets(entries), loaded: true, error: null });
     return entry;
   },
   remove: async (id) => {
     await api.deleteEntry(id);
-    await get().load();
+    const entries = get().entries.filter((entry) => entry.id !== id);
+    set({ entries, ...deriveFacets(entries), loaded: true, error: null });
   },
   wipe: () =>
     set({

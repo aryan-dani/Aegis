@@ -1,4 +1,9 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+use zeroize::Zeroize;
 
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -72,15 +77,21 @@ pub fn open_encrypted(app: &AppHandle, key: &[u8; 32]) -> Result<Connection> {
 
 pub fn open_encrypted_path(path: impl AsRef<Path>, key: &[u8; 32]) -> Result<Connection> {
     let conn = Connection::open(path)?;
-    let hex_key = hex::encode(key);
-    conn.execute_batch(&format!(
+    let mut hex_key = hex::encode(key);
+    let pragma = format!(
         r#"
         PRAGMA key = "x'{hex_key}'";
         PRAGMA cipher_memory_security = ON;
         PRAGMA foreign_keys = ON;
         SELECT count(*) FROM sqlite_master;
         "#
-    ))?;
+    );
+    // Zeroize the hex key immediately — the PRAGMA string also contains it, but
+    // `execute_batch` copies into SQLite's internal buffers and the String is
+    // dropped at the end of this scope, which is safe enough given it is never
+    // returned or stored.
+    hex_key.zeroize();
+    conn.execute_batch(&pragma)?;
     Ok(conn)
 }
 

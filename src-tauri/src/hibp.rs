@@ -1,7 +1,10 @@
 use sha1::{Digest, Sha1};
 use tauri::State;
 
-use crate::{error::{AegisError, Result}, keystore::AppState};
+use crate::{
+    error::{AegisError, Result},
+    keystore::AppState,
+};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BreachCheckResult {
@@ -10,7 +13,7 @@ pub struct BreachCheckResult {
 }
 
 #[tauri::command]
-pub fn check_password_breach(
+pub async fn check_password_breach(
     state: State<'_, AppState>,
     password: String,
 ) -> Result<BreachCheckResult> {
@@ -20,17 +23,19 @@ pub fn check_password_breach(
     let hash = hex::encode_upper(hasher.finalize());
     let (prefix, suffix) = hash.split_at(5);
     let url = format!("https://api.pwnedpasswords.com/range/{prefix}");
-    let body = reqwest::blocking::Client::builder()
+    let body = reqwest::Client::builder()
         .user_agent("Aegis local password manager")
         .build()
         .map_err(|_| AegisError::Network)?
         .get(url)
         .header("Add-Padding", "true")
         .send()
+        .await
         .map_err(|_| AegisError::Network)?
         .error_for_status()
         .map_err(|_| AegisError::Network)?
         .text()
+        .await
         .map_err(|_| AegisError::Network)?;
 
     for line in body.lines() {
@@ -38,11 +43,14 @@ pub fn check_password_breach(
             if candidate.eq_ignore_ascii_case(suffix) {
                 return Ok(BreachCheckResult {
                     found: true,
-                    count: count.parse().unwrap_or(0),
+                    count: count.trim().parse().unwrap_or(0),
                 });
             }
         }
     }
 
-    Ok(BreachCheckResult { found: false, count: 0 })
+    Ok(BreachCheckResult {
+        found: false,
+        count: 0,
+    })
 }

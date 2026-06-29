@@ -58,22 +58,23 @@ pub fn biometric_unlock(app: AppHandle, state: State<'_, AppState>) -> Result<()
     };
 
     let unlock_result = (|| -> Result<()> {
-        let conn = db::open_encrypted(&app, &key)?;
-        db::migrate(&conn)?;
-        let verifier = db::verifier(&conn)?;
-        let plaintext = decrypt(&key, &verifier)?;
+        let conn = db::open_encrypted(&app, &key).map_err(|_| AegisError::InvalidMasterPassword)?;
+        let verifier = db::verifier(&conn).map_err(|_| AegisError::InvalidMasterPassword)?;
+        let plaintext = decrypt(&key, &verifier).map_err(|_| AegisError::InvalidMasterPassword)?;
         if !constant_time_eq(&plaintext, VERIFIER) {
             return Err(AegisError::InvalidMasterPassword);
         }
+        db::migrate(&conn)?;
         Ok(())
     })();
 
     match unlock_result {
         Ok(()) => state.set_key(key),
-        Err(error) => {
+        Err(AegisError::InvalidMasterPassword) => {
             state.record_failed_unlock();
-            Err(error)
+            Err(AegisError::InvalidMasterPassword)
         }
+        Err(error) => Err(error),
     }
 }
 
@@ -143,10 +144,31 @@ fn request_user_consent(message: &str) -> Result<()> {
 
 #[cfg(windows)]
 fn platform_biometric_status() -> Result<BiometricStatus> {
+    use windows::{
+        Security::Credentials::UI::{UserConsentVerifier, UserConsentVerifierAvailability},
+        Win32::System::WinRT::{RoInitialize, RO_INIT_SINGLETHREADED},
+    };
+
+    unsafe {
+        let _ = RoInitialize(RO_INIT_SINGLETHREADED);
+    }
+
+    let available = UserConsentVerifier::CheckAvailabilityAsync()
+        .and_then(|op| op.get())
+        .map(|a| a == UserConsentVerifierAvailability::Available)
+        .unwrap_or(false);
+
+    let message = if available {
+        "Windows Hello is verified by the operating system before key release."
+    } else {
+        "Windows Hello is not configured on this device. Set it up in Windows Settings."
+    }
+    .to_string();
+
     Ok(BiometricStatus {
-        available: true,
+        available,
         enrolled: false,
-        message: "Windows Hello is verified by the operating system before key release.".to_string(),
+        message,
     })
 }
 
@@ -193,12 +215,10 @@ fn platform_protect_key(key: &[u8; 32]) -> Result<Vec<u8>> {
 #[cfg(windows)]
 fn platform_unprotect_key(protected: &[u8]) -> Result<VaultKey> {
     use std::ptr::null_mut;
-    use windows::{
-        Win32::{
-            Foundation::{LocalFree, HLOCAL},
-            Security::Cryptography::{
-                CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
-            },
+    use windows::Win32::{
+        Foundation::{LocalFree, HLOCAL},
+        Security::Cryptography::{
+            CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
         },
     };
 

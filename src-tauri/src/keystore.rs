@@ -56,8 +56,11 @@ impl AppState {
     }
 
     pub fn lock(&self) {
-        if let Ok(mut inner) = self.inner.lock() {
-            inner.key = None;
+        // Use into_inner() fallback: even if the mutex is poisoned we must
+        // still try to wipe the key. A poisoned guard is safe to clear.
+        match self.inner.lock() {
+            Ok(mut inner) => inner.key = None,
+            Err(poisoned) => poisoned.into_inner().key = None,
         }
     }
 
@@ -85,6 +88,7 @@ impl AppState {
         if let Ok(mut inner) = self.inner.lock() {
             inner.failed_attempts = inner.failed_attempts.saturating_add(1);
             if inner.failed_attempts >= 5 {
+                // Backoff: 30s, 60s, 120s, 240s, 480s, then capped at 960s (16 min).
                 let exponent = (inner.failed_attempts - 5).min(5);
                 let seconds = 30u64.saturating_mul(2u64.saturating_pow(exponent));
                 inner.lockout_until = Some(Instant::now() + Duration::from_secs(seconds));

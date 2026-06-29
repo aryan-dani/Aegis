@@ -61,8 +61,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
   lock: async () => {
-    await api.lockVault();
-    set({ unlocked: false });
+    try {
+      await api.lockVault();
+    } finally {
+      // Always transition to locked in the UI — even if the IPC call
+      // throws, the Rust side will have attempted to wipe the key.
+      set({ unlocked: false });
+    }
   },
   forceLocked: () => set({ unlocked: false }),
 }));
