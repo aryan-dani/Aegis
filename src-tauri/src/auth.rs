@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 use zeroize::Zeroize;
 
 use crate::{
-    crypto::{decrypt, derive_key, encrypt, random_bytes, KdfParams, SALT_LEN},
+    crypto::{constant_time_eq, decrypt, derive_key, encrypt, random_bytes, KdfParams, SALT_LEN},
     db,
     error::{AegisError, Result},
     keystore::AppState,
@@ -56,7 +56,7 @@ pub fn unlock_vault(app: AppHandle, state: State<'_, AppState>, master_password:
         db::migrate(&conn)?;
         let verifier = db::verifier(&conn)?;
         let plaintext = decrypt(&key, &verifier)?;
-        if plaintext != VERIFIER {
+        if !constant_time_eq(&plaintext, VERIFIER) {
             return Err(AegisError::InvalidMasterPassword);
         }
         Ok(())

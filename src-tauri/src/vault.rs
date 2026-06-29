@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fs, path::PathBuf};
+use std::{collections::BTreeSet, fs};
 
 use base64::Engine;
 use rand::{rngs::OsRng, seq::SliceRandom, Rng};
@@ -11,6 +11,7 @@ use crate::{
     db,
     error::{AegisError, Result},
     keystore::AppState,
+    security::validate_user_file_path,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -179,7 +180,8 @@ pub fn list_tags(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Strin
 }
 
 #[tauri::command]
-pub fn generate_password(options: GeneratePasswordOptions) -> Result<String> {
+pub fn generate_password(state: State<'_, AppState>, options: GeneratePasswordOptions) -> Result<String> {
+    let _ = state.key_copy()?;
     let length = options.length.clamp(8, 128);
     let mut pools: Vec<&[u8]> = Vec::new();
     if options.lowercase {
@@ -239,7 +241,8 @@ pub fn export_vault(
         encrypted_blob_b64: base64::engine::general_purpose::STANDARD_NO_PAD.encode(encrypted),
         exported_at: chrono::Utc::now().to_rfc3339(),
     };
-    fs::write(PathBuf::from(path), serde_json::to_string_pretty(&file)?)?;
+    let path = validate_user_file_path(&path, false)?;
+    fs::write(path, serde_json::to_string_pretty(&file)?)?;
     Ok(())
 }
 
@@ -250,7 +253,7 @@ pub fn import_encrypted_backup(
     passphrase: String,
     path: String,
 ) -> Result<Vec<VaultEntry>> {
-    let contents = fs::read_to_string(PathBuf::from(path))?;
+    let contents = fs::read_to_string(validate_user_file_path(&path, true)?)?;
     let file: ExportFile = serde_json::from_str(&contents)?;
     let salt = base64::engine::general_purpose::STANDARD_NO_PAD
         .decode(file.salt_b64)
@@ -270,7 +273,8 @@ pub fn import_bitwarden_csv(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<Vec<VaultEntry>> {
-    let mut rdr = csv::Reader::from_path(PathBuf::from(path)).map_err(|_| AegisError::Filesystem)?;
+    let mut rdr = csv::Reader::from_path(validate_user_file_path(&path, true)?)
+        .map_err(|_| AegisError::Filesystem)?;
     let headers = rdr
         .headers()
         .map_err(|_| AegisError::InvalidInput("invalid CSV".to_string()))?

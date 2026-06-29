@@ -54,8 +54,6 @@ import { UpdatePanel } from "@/components/UpdatePanel";
 import { api } from "@/lib/ipc";
 import { entryInitials, entryLabel } from "@/lib/format";
 import {
-  clearWindowsHelloCredential,
-  enrollWindowsHello,
   isWindowsHelloAvailable,
 } from "@/lib/windowsHello";
 import { useAuthStore } from "@/store/authStore";
@@ -190,7 +188,6 @@ export function VaultScreen() {
       await win.unminimize();
       await win.show();
       await win.setFocus();
-      await enrollWindowsHello();
       await api.enrollBiometric();
       await refreshBiometric();
       toast.success("Windows Hello enabled");
@@ -205,7 +202,6 @@ export function VaultScreen() {
     setHelloBusy(true);
     try {
       await api.disableBiometric();
-      clearWindowsHelloCredential();
       await refreshBiometric();
       toast.success("Windows Hello disabled");
     } catch (cause) {

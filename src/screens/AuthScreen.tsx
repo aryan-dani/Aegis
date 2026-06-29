@@ -8,9 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { StrengthMeter } from "@/components/StrengthMeter";
 import { api } from "@/lib/ipc";
 import {
-  hasWindowsHelloCredential,
   isWindowsHelloAvailable,
-  verifyWindowsHello,
 } from "@/lib/windowsHello";
 import { useAuthStore } from "@/store/authStore";
 import type { BiometricStatus } from "@/types";
@@ -72,7 +70,6 @@ export function AuthScreen() {
       await win.unminimize();
       await win.show();
       await win.setFocus();
-      await verifyWindowsHello();
       await unlockWithBiometric();
     } catch (cause) {
       setHelloError(String(cause));
@@ -82,8 +79,7 @@ export function AuthScreen() {
   }
 
   const canSubmit = password.length >= 12 && (!creating || password === confirm);
-  const showHello =
-    !creating && biometric?.enrolled && helloAvailable && hasWindowsHelloCredential();
+  const showHello = !creating && biometric?.enrolled && helloAvailable;
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-6 py-10">

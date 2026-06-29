@@ -1,6 +1,7 @@
 use sha1::{Digest, Sha1};
+use tauri::State;
 
-use crate::error::{AegisError, Result};
+use crate::{error::{AegisError, Result}, keystore::AppState};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BreachCheckResult {
@@ -9,7 +10,11 @@ pub struct BreachCheckResult {
 }
 
 #[tauri::command]
-pub fn check_password_breach(password: String) -> Result<BreachCheckResult> {
+pub fn check_password_breach(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<BreachCheckResult> {
+    let _ = state.key_copy()?;
     let mut hasher = Sha1::new();
     hasher.update(password.as_bytes());
     let hash = hex::encode_upper(hasher.finalize());

@@ -42,10 +42,42 @@ pub fn random_bytes<const N: usize>() -> [u8; N] {
     out
 }
 
-pub fn derive_key(master_password: &str, salt: &[u8], params: &KdfParams) -> Result<VaultKey> {
+pub fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    let mut diff = 0u8;
+    for (a, b) in left.iter().zip(right.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
+
+pub fn validate_kdf_params(params: &KdfParams) -> Result<()> {
     if params.algorithm != "argon2id" {
         return Err(AegisError::InvalidInput("unsupported KDF".to_string()));
     }
+    if !(8_192..=524_288).contains(&params.memory_kib) {
+        return Err(AegisError::InvalidInput(
+            "unsupported KDF memory cost".to_string(),
+        ));
+    }
+    if params.time_cost == 0 || params.time_cost > 10 {
+        return Err(AegisError::InvalidInput(
+            "unsupported KDF time cost".to_string(),
+        ));
+    }
+    if params.parallelism == 0 || params.parallelism > 8 {
+        return Err(AegisError::InvalidInput(
+            "unsupported KDF parallelism".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn derive_key(master_password: &str, salt: &[u8], params: &KdfParams) -> Result<VaultKey> {
+    validate_kdf_params(params)?;
 
     let argon_params = Params::new(
         params.memory_kib,
@@ -92,6 +124,13 @@ pub fn decrypt(key: &[u8; KEY_LEN], encrypted_blob: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constant_time_eq_matches_and_rejects() {
+        assert!(constant_time_eq(b"secret", b"secret"));
+        assert!(!constant_time_eq(b"secret", b"public"));
+        assert!(!constant_time_eq(b"short", b"longer"));
+    }
 
     #[test]
     fn encrypt_decrypt_round_trip() {

@@ -6,6 +6,7 @@ mod db;
 mod error;
 mod hibp;
 mod keystore;
+mod security;
 mod vault;
 
 use std::time::Duration;
