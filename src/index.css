@@ -167,6 +167,102 @@ select {
   }
 }
 
+@layer components {
+  .aegis-app-bg {
+    position: relative;
+    background:
+      radial-gradient(circle at 18% 12%, color-mix(in oklch, var(--foreground) 8%, transparent), transparent 30rem),
+      radial-gradient(circle at 82% 4%, color-mix(in oklch, var(--foreground) 5%, transparent), transparent 26rem),
+      linear-gradient(180deg, color-mix(in oklch, var(--background) 86%, black), var(--background));
+  }
+
+  .aegis-app-bg::before {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    content: "";
+    background-image:
+      linear-gradient(color-mix(in oklch, var(--foreground) 5%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in oklch, var(--foreground) 5%, transparent) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, black, transparent 72%);
+    opacity: 0.35;
+  }
+
+  .aegis-panel {
+    border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+    background:
+      linear-gradient(180deg, color-mix(in oklch, var(--card) 88%, white 4%), var(--card)),
+      color-mix(in oklch, var(--card) 95%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 8%, transparent),
+      0 28px 90px rgb(0 0 0 / 38%);
+  }
+
+  .aegis-glass {
+    border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+    background: color-mix(in oklch, var(--card) 72%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 8%, transparent),
+      0 18px 60px rgb(0 0 0 / 28%);
+    backdrop-filter: blur(18px);
+  }
+
+  .aegis-logo-shell {
+    position: relative;
+    display: grid;
+    place-items: center;
+    overflow: visible;
+    border: 1px solid color-mix(in oklch, var(--foreground) 13%, transparent);
+    background:
+      radial-gradient(circle at 50% 30%, color-mix(in oklch, var(--foreground) 10%, transparent), transparent 58%),
+      linear-gradient(180deg, color-mix(in oklch, var(--card) 78%, white 5%), color-mix(in oklch, var(--background) 75%, black));
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, var(--foreground) 12%, transparent),
+      0 18px 60px rgb(0 0 0 / 36%);
+  }
+
+  .aegis-logo-shell::before {
+    position: absolute;
+    inset: 12%;
+    z-index: 0;
+    content: "";
+    border-radius: inherit;
+    background: color-mix(in oklch, var(--foreground) 10%, transparent);
+    filter: blur(18px);
+    opacity: 0.35;
+  }
+
+  .aegis-logo-shell::after {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    content: "";
+    border-radius: inherit;
+    background: linear-gradient(135deg, color-mix(in oklch, var(--foreground) 12%, transparent), transparent 40%);
+    opacity: 0.55;
+  }
+
+  .aegis-toast[data-type="success"] {
+    border-color: color-mix(in oklch, #ffffff 18%, transparent) !important;
+  }
+
+  .aegis-toast[data-type="error"] {
+    border-color: color-mix(in oklch, var(--destructive) 58%, transparent) !important;
+  }
+
+  .aegis-toast [data-icon] {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+    border-radius: 0.75rem;
+    background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  }
+}
+
 /* Quiet, monochrome scrollbars to match the dark theme */
 * {
   scrollbar-width: thin;

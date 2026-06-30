@@ -1,6 +1,6 @@
 param(
   [string]$Version = "0.1.6",
-  [string]$Repo = "aryan-dani/aegis"
+  [string]$Repo = "aryan-dani/Aegis"
 )
 
 $ErrorActionPreference = "Stop"

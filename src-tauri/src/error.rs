@@ -26,10 +26,6 @@ pub enum AegisError {
     Network,
     #[error("biometric unlock is not available on this device")]
     BiometricUnavailable,
-    #[error("Windows Hello verification was cancelled")]
-    BiometricCancelled,
-    #[error("Windows Hello is busy; try again")]
-    BiometricBusy,
     #[error("Windows Hello unlock has not been enrolled for this vault")]
     BiometricNotEnrolled,
 }

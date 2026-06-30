@@ -59,7 +59,7 @@ If the repository is private, GitHub returns a not found response and the update
 If a user needs to install a specific release manually, use:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-release.ps1 -Version 0.1.7 -Repo aryan-dani/aegis
+powershell -ExecutionPolicy Bypass -File scripts\install-release.ps1 -Version 0.1.7 -Repo aryan-dani/Aegis
 ```
 
 The helper downloads the release installer if it is missing locally and launches it.

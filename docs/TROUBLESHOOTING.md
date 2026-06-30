@@ -14,7 +14,7 @@ Most likely causes:
 Check the update endpoint in a browser:
 
 ```text
-https://github.com/aryan-dani/aegis/releases/latest/download/latest.json
+https://github.com/aryan-dani/Aegis/releases/latest/download/latest.json
 ```
 
 It should return JSON with `version`, `pub_date`, and `platforms`.

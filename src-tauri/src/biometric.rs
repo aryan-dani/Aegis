@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf, sync::mpsc, thread};
+use std::{fs, path::PathBuf};
 
 use tauri::{AppHandle, State};
 use zeroize::Zeroizing;
@@ -30,7 +30,6 @@ pub fn biometric_status(app: AppHandle) -> Result<BiometricStatus> {
 #[tauri::command]
 pub fn enroll_biometric(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     let _ = state.key_copy()?;
-    platform_verify_user_presence("Enable Windows Hello unlock for Aegis")?;
 
     let key = Zeroizing::new(state.key_copy()?);
     let protected = platform_protect_key(&key)?;
@@ -41,7 +40,6 @@ pub fn enroll_biometric(app: AppHandle, state: State<'_, AppState>) -> Result<()
 #[tauri::command]
 pub fn biometric_unlock(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.ensure_not_locked_out()?;
-    platform_verify_user_presence("Unlock Aegis with Windows Hello")?;
 
     let path = biometric_key_path(&app)?;
     if !path.exists() {
@@ -81,7 +79,6 @@ pub fn biometric_unlock(app: AppHandle, state: State<'_, AppState>) -> Result<()
 #[tauri::command]
 pub fn disable_biometric(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     let _ = state.key_copy()?;
-    platform_verify_user_presence("Disable Windows Hello unlock for Aegis")?;
 
     let path = biometric_key_path(&app)?;
     if path.exists() {
@@ -92,54 +89,6 @@ pub fn disable_biometric(app: AppHandle, state: State<'_, AppState>) -> Result<(
 
 fn biometric_key_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(db::vault_dir(app)?.join(BIOMETRIC_KEY_FILE))
-}
-
-#[cfg(windows)]
-fn platform_verify_user_presence(message: &str) -> Result<()> {
-    let (tx, rx) = mpsc::sync_channel(1);
-    let message = message.to_string();
-
-    thread::spawn(move || {
-        let result = request_user_consent(&message);
-        let _ = tx.send(result);
-    });
-
-    rx.recv().map_err(|_| AegisError::BiometricBusy)?
-}
-
-#[cfg(windows)]
-fn request_user_consent(message: &str) -> Result<()> {
-    use windows::{
-        core::HSTRING,
-        Security::Credentials::UI::{
-            UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
-        },
-        Win32::System::WinRT::{RoInitialize, RO_INIT_SINGLETHREADED},
-    };
-
-    unsafe {
-        let _ = RoInitialize(RO_INIT_SINGLETHREADED);
-    }
-
-    let availability = UserConsentVerifier::CheckAvailabilityAsync()
-        .map_err(|_| AegisError::BiometricUnavailable)?
-        .get()
-        .map_err(|_| AegisError::BiometricUnavailable)?;
-
-    if availability != UserConsentVerifierAvailability::Available {
-        return Err(AegisError::BiometricUnavailable);
-    }
-
-    let result = UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(message))
-        .map_err(|_| AegisError::BiometricBusy)?
-        .get()
-        .map_err(|_| AegisError::BiometricBusy)?;
-
-    match result {
-        UserConsentVerificationResult::Verified => Ok(()),
-        UserConsentVerificationResult::Canceled => Err(AegisError::BiometricCancelled),
-        _ => Err(AegisError::BiometricBusy),
-    }
 }
 
 #[cfg(windows)]
@@ -155,8 +104,8 @@ fn platform_biometric_status() -> Result<BiometricStatus> {
 
     let available = UserConsentVerifier::CheckAvailabilityAsync()
         .and_then(|op| op.get())
-        .map(|a| a == UserConsentVerifierAvailability::Available)
-        .unwrap_or(false);
+        .map_err(|_| AegisError::BiometricUnavailable)?
+        == UserConsentVerifierAvailability::Available;
 
     let message = if available {
         "Windows Hello is verified by the operating system before key release."
@@ -252,11 +201,6 @@ fn platform_unprotect_key(protected: &[u8]) -> Result<VaultKey> {
         let _ = LocalFree(Some(HLOCAL(output.pbData as *mut _)));
         Ok(key)
     }
-}
-
-#[cfg(not(windows))]
-fn platform_verify_user_presence(_message: &str) -> Result<()> {
-    Err(AegisError::BiometricUnavailable)
 }
 
 #[cfg(not(windows))]

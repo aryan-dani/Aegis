@@ -1,12 +1,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Fingerprint, KeyRound, Lock, ShieldCheck } from "lucide-react";
+import { Fingerprint, KeyRound } from "lucide-react";
+import { AegisLogo } from "@/components/AegisLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { StrengthMeter } from "@/components/StrengthMeter";
 import { api } from "@/lib/ipc";
+import { hasWindowsHelloCredential, verifyWindowsHello } from "@/lib/windowsHello";
 import { useAuthStore } from "@/store/authStore";
 import type { BiometricStatus } from "@/types";
 
@@ -68,6 +70,8 @@ export function AuthScreen() {
       await win.unminimize();
       await win.show();
       await win.setFocus();
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+      await verifyWindowsHello();
       await unlockWithBiometric();
     } catch (cause) {
       setHelloError(String(cause));
@@ -77,28 +81,29 @@ export function AuthScreen() {
   }
 
   const canSubmit = password.length >= 12 && (!creating || password === confirm);
-  const showHello = !creating && biometric?.enrolled && helloAvailable;
+  const showHello = !creating && biometric?.enrolled && helloAvailable && hasWindowsHelloCredential();
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-6 py-10">
-      <div className="pointer-events-none absolute inset-0 [background-image:radial-gradient(circle_at_1px_1px,var(--color-border)_1px,transparent_0)] [background-size:28px_28px] opacity-40" />
+    <main className="aegis-app-bg relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-10">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/25 to-transparent" />
       <div className="relative w-full max-w-md animate-in fade-in-0 zoom-in-95 duration-300">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="flex size-14 items-center justify-center rounded-2xl border bg-card text-foreground shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
-            {creating ? <ShieldCheck className="size-7" /> : <Lock className="size-7" />}
-          </div>
-          <h1 className="mt-5 text-2xl font-semibold tracking-tight">
+          <AegisLogo size="lg" />
+          <p className="mt-5 text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
+            Aegis secure vault
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">
             {creating ? "Create your vault" : "Welcome back"}
           </h1>
-          <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+          <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
             {creating
               ? "Choose a master password you can remember. Aegis cannot recover it for you."
               : "Unlock your local encrypted vault to continue."}
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-card p-6 shadow-[0_28px_110px_rgba(0,0,0,0.45)]">
-          <div className="mb-5 rounded-xl border bg-background/60 px-4 py-3">
+        <div className="aegis-panel rounded-3xl p-6">
+          <div className="mb-5 rounded-2xl border bg-background/50 px-4 py-3">
             <p className="text-sm font-medium">
               {creating ? "Local encryption, no account recovery" : "Protected local session"}
             </p>

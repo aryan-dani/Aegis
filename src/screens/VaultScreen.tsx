@@ -13,10 +13,10 @@ import {
   Lock,
   Plus,
   Settings,
-  Shield,
   Tag,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AegisLogo } from "@/components/AegisLogo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { UpdatePanel } from "@/components/UpdatePanel";
 import { api } from "@/lib/ipc";
 import { entryLabel } from "@/lib/format";
+import { clearWindowsHelloCredential, enrollWindowsHello } from "@/lib/windowsHello";
 import { useAuthStore } from "@/store/authStore";
 import { useUiStore } from "@/store/uiStore";
 import { filterEntries, useVaultStore } from "@/store/vaultStore";
@@ -174,6 +175,8 @@ export function VaultScreen() {
       await win.unminimize();
       await win.show();
       await win.setFocus();
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+      await enrollWindowsHello();
       await api.enrollBiometric();
       await refreshBiometric();
       toast.success("Windows Hello enabled");
@@ -188,6 +191,7 @@ export function VaultScreen() {
     setHelloBusy(true);
     try {
       await api.disableBiometric();
+      clearWindowsHelloCredential();
       await refreshBiometric();
       toast.success("Windows Hello disabled");
     } catch (cause) {
@@ -200,14 +204,15 @@ export function VaultScreen() {
   const hasFilters = Boolean(query || folderFilter || tagFilter);
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="aegis-app-bg min-h-screen">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-6 py-6">
-        <header className="flex items-center justify-between gap-4 rounded-2xl border bg-card px-5 py-4 shadow-[0_20px_80px_rgba(0,0,0,0.35)]">
+        <header className="aegis-glass flex items-center justify-between gap-4 rounded-3xl px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-xl border bg-background text-foreground">
-              <Shield className="size-5" />
-            </div>
+            <AegisLogo size="sm" />
             <div>
+              <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
+                Local vault
+              </p>
               <h1 className="text-lg font-semibold leading-tight tracking-tight">Aegis</h1>
               <p className="text-xs text-muted-foreground">
                 {entries.length} {entries.length === 1 ? "credential" : "credentials"} · local-only
@@ -241,8 +246,8 @@ export function VaultScreen() {
 
         {view === "settings" ? (
           <section className="flex flex-1 flex-col gap-6 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-            <div className="overflow-hidden rounded-3xl border bg-card shadow-[0_24px_90px_rgba(0,0,0,0.32)]">
-              <div className="border-b bg-background/40 px-6 py-6">
+            <div className="aegis-panel overflow-hidden rounded-3xl">
+              <div className="border-b bg-background/35 px-6 py-6">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
@@ -267,11 +272,9 @@ export function VaultScreen() {
                 <div className="space-y-6">
                   <UpdatePanel />
 
-                  <div className="rounded-2xl border bg-background/60 p-5">
+                  <div className="aegis-glass rounded-2xl p-5">
                     <div className="flex items-start gap-4">
-                      <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
-                        <Shield className="size-5" />
-                      </div>
+                      <AegisLogo className="shrink-0" size="sm" />
                       <div>
                         <Label>Vault posture</Label>
                         <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
@@ -281,22 +284,22 @@ export function VaultScreen() {
                       </div>
                     </div>
                     <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-xl border bg-card p-4">
+                      <div className="rounded-xl border bg-card/80 p-4">
                         <p className="text-xs text-muted-foreground">Storage</p>
                         <p className="mt-1 text-sm font-medium">SQLCipher database</p>
                       </div>
-                      <div className="rounded-xl border bg-card p-4">
+                      <div className="rounded-xl border bg-card/80 p-4">
                         <p className="text-xs text-muted-foreground">Entry encryption</p>
                         <p className="mt-1 text-sm font-medium">AES-256-GCM</p>
                       </div>
-                      <div className="rounded-xl border bg-card p-4">
+                      <div className="rounded-xl border bg-card/80 p-4">
                         <p className="text-xs text-muted-foreground">Network posture</p>
                         <p className="mt-1 text-sm font-medium">Manual and opt-in</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border bg-background/60 p-5">
+                  <div className="aegis-glass rounded-2xl p-5">
                     <div className="flex items-start justify-between gap-5">
                       <div className="flex items-start gap-4">
                         <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
@@ -316,7 +319,7 @@ export function VaultScreen() {
                 </div>
 
                 <div className="space-y-6">
-                  <div className="rounded-2xl border bg-background/60 p-5">
+                  <div className="aegis-glass rounded-2xl p-5">
                     <div className="flex items-start gap-4">
                       <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
                         <Clock className="size-5" />
@@ -343,7 +346,7 @@ export function VaultScreen() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border bg-background/60 p-5">
+                  <div className="aegis-glass rounded-2xl p-5">
                     <div className="flex items-start gap-4">
                       <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
                         <Fingerprint className="size-5" />
@@ -356,7 +359,7 @@ export function VaultScreen() {
                         </p>
                       </div>
                     </div>
-                    <div className="mt-5 rounded-xl border bg-card p-4">
+                    <div className="mt-5 rounded-xl border bg-card/80 p-4">
                       <p className="text-xs text-muted-foreground">Current status</p>
                       <p className="mt-1 text-sm font-medium">
                         {helloAvailable
@@ -390,7 +393,7 @@ export function VaultScreen() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border bg-background/60 p-5">
+                  <div className="aegis-glass rounded-2xl p-5">
                     <div>
                       <Label>Data portability</Label>
                       <p className="mt-1 text-sm leading-relaxed text-muted-foreground">

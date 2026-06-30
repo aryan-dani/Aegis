@@ -64,9 +64,9 @@ export function UpdatePanel() {
   }
 
   return (
-    <div className="rounded-2xl border bg-background/60 p-4 shadow-sm">
+    <div className="aegis-glass rounded-2xl p-5">
       <div className="flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl border bg-card">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border bg-card/80">
           <DownloadCloud className="size-4 text-foreground" />
         </div>
         <div className="space-y-1">
@@ -79,11 +79,11 @@ export function UpdatePanel() {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-lg border bg-card px-3 py-2">
+        <div className="rounded-xl border bg-card/80 px-3 py-2">
           <p className="text-muted-foreground">Installed version</p>
           <p className="mt-1 font-mono text-foreground">v{version || "..."}</p>
         </div>
-        <div className="rounded-lg border bg-card px-3 py-2">
+        <div className="rounded-xl border bg-card/80 px-3 py-2">
           <p className="text-muted-foreground">Verification</p>
           <p className="mt-1 flex items-center gap-1.5 text-foreground">
             <ShieldCheck className="size-3.5" />
@@ -93,12 +93,12 @@ export function UpdatePanel() {
       </div>
 
       {available ? (
-        <div className="mt-4 space-y-3 rounded-xl border bg-card p-3">
+        <div className="mt-4 space-y-3 rounded-2xl border bg-card/80 p-3">
           <p className="text-sm font-medium">
             Version <span className="font-mono">v{available.version}</span> is ready to install.
           </p>
           {available.body ? (
-            <p className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg bg-background/60 p-3 text-xs leading-relaxed text-muted-foreground">
+            <p className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-xl bg-background/60 p-3 text-xs leading-relaxed text-muted-foreground">
               {available.body}
             </p>
           ) : null}
@@ -111,7 +111,7 @@ export function UpdatePanel() {
       ) : (
         <>
           {checked ? (
-            <div className="mt-4 flex items-start gap-2 rounded-xl border bg-card p-3 text-xs text-muted-foreground">
+            <div className="mt-4 flex items-start gap-2 rounded-2xl border bg-card/80 p-3 text-xs text-muted-foreground">
               <CheckCircle2 className="mt-0.5 size-4 text-foreground" />
               <p>Aegis is already running the newest signed release available to this channel.</p>
             </div>

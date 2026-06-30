@@ -43,15 +43,16 @@ export function EntryRow({ entry, index, onDelete, onEdit }: EntryRowProps) {
 
   return (
     <div
-      className="group flex items-center gap-3 rounded-xl border bg-card/60 p-3 transition-all duration-200 hover:border-foreground/25 hover:bg-card animate-in fade-in-0 slide-in-from-bottom-1"
+      className="group relative flex items-center gap-3 overflow-hidden rounded-2xl border bg-card/60 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:bg-card/90 hover:shadow-[0_16px_50px_rgba(0,0,0,0.28)] animate-in fade-in-0 slide-in-from-bottom-1"
       style={{ animationDelay: `${Math.min(index, 12) * 25}ms` }}
     >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/18 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       <button
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
         onClick={onEdit}
         type="button"
       >
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background font-mono text-xs font-semibold text-muted-foreground">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-background/80 font-mono text-xs font-semibold text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
           {entryInitials(entry)}
         </div>
         <div className="min-w-0">

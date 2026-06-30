@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { AegisLogo } from "@/components/AegisLogo";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthScreen } from "@/screens/AuthScreen";
@@ -39,9 +39,7 @@ function App() {
         </div>
       ) : (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background text-muted-foreground">
-          <div className="flex size-12 items-center justify-center rounded-2xl border bg-card text-foreground">
-            <ShieldCheck className="size-6" />
-          </div>
+          <AegisLogo size="md" />
           <div className="flex items-center gap-2 text-sm">
             <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" />
             Initializing local vault
