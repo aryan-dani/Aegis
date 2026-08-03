@@ -1,6 +1,6 @@
 [package]
 name = "aegis"
-version = "0.1.12"
+version = "0.1.13"
 description = "A local-only secure desktop password manager"
 authors = ["Aegis"]
 edition = "2021"
