@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, Pencil, Trash2, User } from "lucide-react";
+import { Check, Copy, FileText, Pencil, Trash2, User } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -16,17 +16,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/ipc";
-import { entryInitials, entryLabel } from "@/lib/format";
+import { entryInitials, entryLabel, formatBytes, mimeLabel } from "@/lib/format";
+import { isDocument } from "@/store/vaultStore";
 import type { VaultEntry } from "@/types";
 
 type EntryRowProps = {
   entry: VaultEntry;
   index: number;
   onDelete: () => Promise<void>;
-  onEdit: () => void;
+  onOpen: () => void;
 };
 
-export function EntryRow({ entry, index, onDelete, onEdit }: EntryRowProps) {
+export function EntryRow({ entry, index, onDelete, onOpen }: EntryRowProps) {
+  const document = isDocument(entry);
   const [copied, setCopied] = useState<"password" | "username" | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -49,28 +51,33 @@ export function EntryRow({ entry, index, onDelete, onEdit }: EntryRowProps) {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/18 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       <button
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
-        onClick={onEdit}
+        onClick={onOpen}
         type="button"
       >
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-background/80 font-mono text-xs font-semibold text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-          {entryInitials(entry)}
+          {document ? <FileText className="size-4" /> : entryInitials(entry)}
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{entryLabel(entry)}</div>
           <div className="truncate text-xs text-muted-foreground">
-            {entry.username || "No username"}
+            {document
+              ? `${mimeLabel(entry.mime_type)} · ${formatBytes(entry.size_bytes)}`
+              : entry.username || "No username"}
           </div>
         </div>
       </button>
 
       <div className="flex shrink-0 items-center gap-2">
+        <Badge className="hidden capitalize md:inline-flex" variant="outline">
+          {document ? "Document" : "Password"}
+        </Badge>
         {entry.folder ? (
-          <Badge className="hidden md:inline-flex" variant="outline">
+          <Badge className="hidden lg:inline-flex" variant="secondary">
             {entry.folder}
           </Badge>
         ) : null}
         <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
-          {entry.username ? (
+          {!document && entry.username ? (
             <Button
               aria-label="Copy username"
               size="icon-sm"
@@ -81,21 +88,23 @@ export function EntryRow({ entry, index, onDelete, onEdit }: EntryRowProps) {
               {copied === "username" ? <Check className="size-4" /> : <User className="size-4" />}
             </Button>
           ) : null}
+          {!document ? (
+            <Button
+              aria-label="Copy password"
+              size="icon-sm"
+              title="Copy password"
+              variant="ghost"
+              onClick={() => copy("password")}
+            >
+              {copied === "password" ? <Check className="size-4" /> : <Copy className="size-4" />}
+            </Button>
+          ) : null}
           <Button
-            aria-label="Copy password"
+            aria-label={document ? "Open document" : "Edit entry"}
             size="icon-sm"
-            title="Copy password"
+            title={document ? "Open" : "Edit"}
             variant="ghost"
-            onClick={() => copy("password")}
-          >
-            {copied === "password" ? <Check className="size-4" /> : <Copy className="size-4" />}
-          </Button>
-          <Button
-            aria-label="Edit entry"
-            size="icon-sm"
-            title="Edit"
-            variant="ghost"
-            onClick={onEdit}
+            onClick={onOpen}
           >
             <Pencil className="size-4" />
           </Button>
@@ -107,7 +116,9 @@ export function EntryRow({ entry, index, onDelete, onEdit }: EntryRowProps) {
             </AlertDialogTrigger>
             <AlertDialogContent className="border-border bg-card">
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  Delete this {document ? "document" : "credential"}?
+                </AlertDialogTitle>
                 <AlertDialogDescription>
                   {entryLabel(entry)} will be permanently removed from the vault. This cannot be
                   undone.

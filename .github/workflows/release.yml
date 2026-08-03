@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: Optional release notes
+        required: false
+        default: ""
+
+concurrency:
+  group: aegis-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       !startsWith(github.event.head_commit.message, 'release:'))
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.8.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Cache vcpkg OpenSSL
+        id: cache-vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-openssl-x64-windows-static-v1
+
+      - name: Install OpenSSL via vcpkg
+        shell: pwsh
+        run: |
+          $env:VCPKG_ROOT = "C:\vcpkg"
+          if (-not (Test-Path "$env:VCPKG_ROOT\.git")) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+          }
+          if (-not (Test-Path "$env:VCPKG_ROOT\installed\x64-windows-static\lib\libssl.lib")) {
+            & "$env:VCPKG_ROOT\vcpkg.exe" install openssl:x64-windows-static
+          }
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Publish signed release
+        shell: pwsh
+        env:
+          CI: "true"
+          VCPKG_ROOT: C:\vcpkg
+          OPENSSL_DIR: C:\vcpkg\installed\x64-windows-static
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "Missing repository secret TAURI_SIGNING_PRIVATE_KEY. Add the contents of %USERPROFILE%\.aegis\aegis-updater.key as a GitHub Actions secret."
+          }
+          $notes = "${{ github.event.inputs.notes }}"
+          if (-not $notes) {
+            $notes = "Automated release from commit $($env:GITHUB_SHA.Substring(0,7))"
+          }
+          powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Notes $notes

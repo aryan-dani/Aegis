@@ -5,11 +5,16 @@ import { Input } from "@/components/ui/input";
 type Props = {
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 };
 
 const SEARCH_INPUT_ID = "vault-search-input";
 
-export function SearchBar({ value, onChange }: Props) {
+export function SearchBar({
+  value,
+  onChange,
+  placeholder = "Search by site, username, folder, or tag",
+}: Props) {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -35,7 +40,7 @@ export function SearchBar({ value, onChange }: Props) {
         className="h-10 pl-9 pr-16"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Search by site, username, folder, or tag"
+        placeholder={placeholder}
       />
       {value ? (
         <button

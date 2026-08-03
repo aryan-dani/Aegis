@@ -3,6 +3,7 @@ mod biometric;
 mod clipboard;
 mod crypto;
 mod db;
+mod documents;
 mod error;
 mod hibp;
 mod keystore;
@@ -84,6 +85,11 @@ pub fn run() {
             vault::export_vault,
             vault::import_encrypted_backup,
             vault::import_bitwarden_csv,
+            documents::import_document,
+            documents::import_documents_from_folder,
+            documents::update_document_meta,
+            documents::get_document_preview,
+            documents::export_document,
             clipboard::copy_secret,
             hibp::check_password_breach,
             biometric::biometric_status,
@@ -155,5 +161,14 @@ mod tests {
         assert_eq!(entry["url"], "https://example.com");
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn document_metadata_defaults_kind_to_password_for_legacy_entries() {
+        let legacy = br#"{"id":"1","url":"https://a.test","username":"u","password":"p","notes":"","folder":null,"tags":[],"created_at":"t","updated_at":"t"}"#;
+        let entry: crate::vault::VaultEntry = serde_json::from_slice(legacy).unwrap();
+        assert_eq!(entry.kind, "password");
+        assert_eq!(entry.title, "");
+        assert_eq!(entry.size_bytes, 0);
     }
 }

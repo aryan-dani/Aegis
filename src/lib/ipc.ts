@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   BiometricStatus,
   BreachCheckResult,
+  DocumentMetaInput,
+  DocumentPreview,
   EntryInput,
   GeneratePasswordOptions,
   VaultEntry,
@@ -27,6 +29,30 @@ export const api = {
   deleteEntry: (id: string) => invoke<void>("delete_entry", { id }),
   listFolders: () => invoke<string[]>("list_folders"),
   listTags: () => invoke<string[]>("list_tags"),
+
+  importDocument: (
+    path: string,
+    folder?: string | null,
+    tags: string[] = [],
+    notes?: string | null,
+  ) =>
+    invoke<VaultEntry>("import_document", {
+      path,
+      folder: folder ?? null,
+      tags,
+      notes: notes ?? null,
+    }),
+  importDocumentsFromFolder: (path: string, folder?: string | null) =>
+    invoke<VaultEntry[]>("import_documents_from_folder", {
+      path,
+      folder: folder ?? null,
+    }),
+  updateDocumentMeta: (id: string, input: DocumentMetaInput) =>
+    invoke<VaultEntry>("update_document_meta", { id, input }),
+  getDocumentPreview: (id: string) =>
+    invoke<DocumentPreview>("get_document_preview", { id }),
+  exportDocument: (id: string, path: string) =>
+    invoke<void>("export_document", { id, path }),
 
   generatePassword: (options: GeneratePasswordOptions) =>
     invoke<string>("generate_password", { options }),

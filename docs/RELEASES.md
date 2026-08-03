@@ -16,11 +16,33 @@ The release script performs the standard release process:
 8. Pushes to GitHub.
 9. Uploads installer assets and updater metadata to GitHub Releases.
 
-Run a release with:
+Run a release with an explicit version:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Version 0.1.8 -Notes "Describe the change"
 ```
+
+Or auto-bump the patch version from `package.json`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Notes "Describe the change"
+```
+
+## Automatic Releases
+
+Pushes to `main` trigger GitHub Actions (`.github/workflows/release.yml`) to:
+
+1. Skip commits whose message already starts with `release:` (avoids loops).
+2. Auto-increment the patch version.
+3. Build and sign the Windows installer.
+4. Commit `release: vX.Y.Z`, tag, push, and publish GitHub Release assets including `latest.json`.
+
+Required repository secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — contents of `%USERPROFILE%\.aegis\aegis-updater.key`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — optional; only if the key is password-protected
+
+You can also run the workflow manually from the Actions tab (`workflow_dispatch`).
 
 ## Required Files
 

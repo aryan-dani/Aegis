@@ -97,8 +97,8 @@ export function AuthScreen() {
           </h1>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
             {creating
-              ? "Choose a master password you can remember. Aegis cannot recover it for you."
-              : "Unlock your local encrypted vault to continue."}
+              ? "Choose a master password you can remember. Aegis encrypts passwords and documents locally and cannot recover that password."
+              : "Unlock your local encrypted vault for passwords and documents."}
           </p>
         </div>
 

@@ -1,4 +1,7 @@
+export type VaultItemKind = "password" | "document";
+
 export type VaultEntry = {
+  kind: VaultItemKind | string;
   id: string;
   url: string;
   username: string;
@@ -8,6 +11,10 @@ export type VaultEntry = {
   tags: string[];
   created_at: string;
   updated_at: string;
+  title: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
 };
 
 export type EntryInput = {
@@ -17,6 +24,21 @@ export type EntryInput = {
   notes: string;
   folder?: string | null;
   tags: string[];
+};
+
+export type DocumentMetaInput = {
+  title: string;
+  notes: string;
+  folder?: string | null;
+  tags: string[];
+};
+
+export type DocumentPreview = {
+  id: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  data_base64: string;
 };
 
 export type GeneratePasswordOptions = {

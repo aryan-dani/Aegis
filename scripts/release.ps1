@@ -11,22 +11,25 @@
     5. Commits, tags, pushes, and creates the GitHub Release with all assets
 
 .PARAMETER Version
-  Semver for this release, e.g. 0.2.0
+  Semver for this release, e.g. 0.2.0.
+  If omitted, the patch version is auto-incremented from package.json.
 
 .PARAMETER Notes
   Optional release notes shown in-app and on GitHub.
 
 .PARAMETER Repo
   Optional GitHub repo as "owner/name" (or just "name" to create under your account).
-  If omitted, the existing "origin" remote is used, or a private repo named "aegis" is created.
+  If omitted, the existing "origin" remote is used, or a public repo named "aegis" is created.
 
 .EXAMPLE
   pwsh scripts/release.ps1 -Version 0.2.0 -Notes "Adds tag filters and faster search"
+
+.EXAMPLE
+  pwsh scripts/release.ps1 -Notes "Auto patch bump"
 #>
 
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$Version,
+  [string]$Version = "",
   [string]$Notes = "",
   [string]$Repo = ""
 )
@@ -37,12 +40,33 @@ function Step($message) {
   Write-Host "==> $message" -ForegroundColor Cyan
 }
 
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-  throw "Version must be semver like 0.2.0 (got '$Version')."
+function Get-CurrentVersion([string]$PackageJsonPath) {
+  $pkg = Get-Content $PackageJsonPath -Raw | ConvertFrom-Json
+  return [string]$pkg.version
+}
+
+function Get-NextPatchVersion([string]$Current) {
+  if ($Current -notmatch '^(\d+)\.(\d+)\.(\d+)$') {
+    throw "Current version '$Current' is not valid semver."
+  }
+  $major = [int]$Matches[1]
+  $minor = [int]$Matches[2]
+  $patch = [int]$Matches[3] + 1
+  return "$major.$minor.$patch"
 }
 
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
+
+$pkgPath = Join-Path $root "package.json"
+if (-not $Version) {
+  $Version = Get-NextPatchVersion (Get-CurrentVersion $pkgPath)
+  Write-Host "    Auto-selected next version: $Version" -ForegroundColor DarkGray
+}
+
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+  throw "Version must be semver like 0.2.0 (got '$Version')."
+}
 
 # --- Tooling sanity checks -------------------------------------------------
 Step "Checking tooling"
@@ -59,36 +83,49 @@ if ($ghCommand) {
 if (-not $gh) {
   throw "GitHub CLI 'gh' is not on PATH. Open a new terminal or install via 'winget install GitHub.cli'."
 }
-& $gh auth status 1>$null 2>$null
-if ($LASTEXITCODE -ne 0) {
-  throw "You are not logged in to GitHub. Run 'gh auth login' once, then re-run this script."
+
+if (-not $env:CI) {
+  & $gh auth status 1>$null 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    throw "You are not logged in to GitHub. Run 'gh auth login' once, then re-run this script."
+  }
 }
 
 $keyDir = Join-Path $env:USERPROFILE ".aegis"
 $keyPath = Join-Path $keyDir "aegis-updater.key"
 $envPath = Join-Path $keyDir "release.env"
-if (-not (Test-Path $keyPath)) {
-  throw "Signing key not found at $keyPath. (It is created once during setup.)"
+
+# Prefer an already-exported signing key (CI secrets), then fall back to local key file.
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+  if (-not (Test-Path $keyPath)) {
+    throw "Signing key not found at $keyPath and TAURI_SIGNING_PRIVATE_KEY is unset."
+  }
+  $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content $keyPath -Raw).Trim()
+}
+
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+  if (Test-Path $envPath) {
+    foreach ($line in Get-Content $envPath) {
+      if ($line -match '^\s*TAURI_SIGNING_PRIVATE_KEY_PASSWORD\s*=\s*(.*)$') {
+        $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $Matches[1].Trim()
+      }
+    }
+  }
 }
 
 # --- Signing + SQLCipher build environment --------------------------------
 Step "Configuring build environment"
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
-$env:VCPKG_ROOT = "$env:USERPROFILE\vcpkg"
+if (-not $env:VCPKG_ROOT) {
+  $env:VCPKG_ROOT = "$env:USERPROFILE\vcpkg"
+}
 $env:OPENSSL_NO_VENDOR = "1"
-$env:OPENSSL_DIR = "$env:USERPROFILE\vcpkg\installed\x64-windows-static"
+if (-not $env:OPENSSL_DIR) {
+  $env:OPENSSL_DIR = "$env:VCPKG_ROOT\installed\x64-windows-static"
+}
 $env:OPENSSL_STATIC = "1"
 $env:RUSTFLAGS = "-Ctarget-feature=+crt-static"
-
-$env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content $keyPath -Raw).Trim()
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
-if (Test-Path $envPath) {
-  foreach ($line in Get-Content $envPath) {
-    if ($line -match '^\s*TAURI_SIGNING_PRIVATE_KEY_PASSWORD\s*=\s*(.*)$') {
-      $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $Matches[1].Trim()
-    }
-  }
-}
 
 # --- Ensure git repo + GitHub remote --------------------------------------
 Step "Ensuring git repository"
@@ -120,7 +157,6 @@ Write-Host "    Publishing to $slug" -ForegroundColor DarkGray
 
 # --- Patch versions + updater endpoint ------------------------------------
 Step "Setting version to $Version"
-$pkgPath = Join-Path $root "package.json"
 $cargoPath = Join-Path $root "src-tauri\Cargo.toml"
 $confPath = Join-Path $root "src-tauri\tauri.conf.json"
 
@@ -168,10 +204,19 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 
 # --- Commit, tag, push -----------------------------------------------------
 Step "Committing and tagging v$Version"
+if ($env:CI) {
+  git config user.name "github-actions[bot]"
+  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+}
 git add -A
-git commit -m "release: v$Version" | Out-Null
+$pending = git status --porcelain
+if ($pending) {
+  git commit -m "release: v$Version" | Out-Null
+} else {
+  Write-Host "    No file changes to commit (version may already match)." -ForegroundColor DarkGray
+}
 git tag -f "v$Version" | Out-Null
-git push origin main
+git push origin HEAD:main
 git push -f origin "v$Version"
 
 # --- Publish GitHub release ------------------------------------------------
@@ -181,6 +226,15 @@ $msi = Join-Path $root "src-tauri\target\release\bundle\msi\Aegis_${Version}_x64
 $assets = @($setup, $sig, $latestPath)
 if (Test-Path $msi) { $assets += $msi }
 
+# Replace an existing draft/failed release of the same tag if needed.
+$previousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $gh release view "v$Version" --repo $slug 1>$null 2>$null
+$releaseExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $previousErrorActionPreference
+if ($releaseExists) {
+  & $gh release delete "v$Version" --repo $slug --yes
+}
 & $gh release create "v$Version" $assets --repo $slug --title "v$Version" --notes $releaseNotes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed." }
 
