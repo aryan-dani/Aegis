@@ -22,6 +22,18 @@ pub const KIND_DOCUMENT: &str = "document";
 const MAX_DOCUMENT_BYTES: usize = 25 * 1024 * 1024;
 const BLOBS_DIR: &str = "blobs";
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SkippedImport {
+    pub path: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FolderImportResult {
+    pub imported: Vec<VaultEntry>,
+    pub skipped: Vec<SkippedImport>,
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct DocumentMetaInput {
     pub title: String,
@@ -123,6 +135,23 @@ pub fn delete_blob(app: &AppHandle, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Renames an encrypted document blob when an imported entry ID is remapped.
+pub fn rename_blob(app: &AppHandle, from_id: &str, to_id: &str) -> Result<()> {
+    if from_id == to_id {
+        return Ok(());
+    }
+    let from = blob_path(app, from_id)?;
+    let to = blob_path(app, to_id)?;
+    if !from.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(from, to)?;
+    Ok(())
+}
+
 fn persist_document_meta(
     app: &AppHandle,
     key: &[u8; 32],
@@ -214,7 +243,7 @@ pub fn import_documents_from_folder(
     state: State<'_, AppState>,
     path: String,
     folder: Option<String>,
-) -> Result<Vec<VaultEntry>> {
+) -> Result<FolderImportResult> {
     let key = Zeroizing::new(state.key_copy()?);
     let folder_path = validate_user_file_path(&path, true)?;
     if !folder_path.is_dir() {
@@ -224,6 +253,7 @@ pub fn import_documents_from_folder(
     }
 
     let mut imported = Vec::new();
+    let mut skipped = Vec::new();
     let mut entries = fs::read_dir(&folder_path)?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
@@ -233,6 +263,7 @@ pub fn import_documents_from_folder(
 
     let target_folder = folder.or_else(|| Some("Personal Documents".to_string()));
     for file_path in entries {
+        let display = file_path.to_string_lossy().to_string();
         match import_document_with_key(
             &app,
             &key,
@@ -242,12 +273,15 @@ pub fn import_documents_from_folder(
             None,
         ) {
             Ok(entry) => imported.push(entry),
-            Err(AegisError::InvalidInput(_)) => continue,
+            Err(AegisError::InvalidInput(reason)) => skipped.push(SkippedImport {
+                path: display,
+                reason,
+            }),
             Err(error) => return Err(error),
         }
     }
 
-    Ok(imported)
+    Ok(FolderImportResult { imported, skipped })
 }
 
 #[tauri::command]

@@ -1,41 +1,27 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import {
-  Clock,
-  Database,
-  Download,
-  FilePlus2,
-  FileText,
-  Fingerprint,
-  Folder,
-  FolderOpen,
-  Import,
-  KeyRound,
-  LayoutGrid,
-  Lock,
-  Plus,
-  Settings,
-  Shield,
-  Tag,
-} from "lucide-react";
+import { FilePlus2, FileText, Folder, FolderOpen, Plus, Shield, X } from "lucide-react";
 import { toast } from "sonner";
-import { AegisLogo } from "@/components/AegisLogo";
 import { DocumentDialog } from "@/components/DocumentDialog";
 import { EntryDialog } from "@/components/EntryDialog";
 import { EntryRow } from "@/components/EntryRow";
-import { FilterButton } from "@/components/FilterButton";
 import { SearchBar } from "@/components/SearchBar";
-import { UpdatePanel } from "@/components/UpdatePanel";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { VaultSidebar, type VaultNavView } from "@/components/VaultSidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/ipc";
 import { entryLabel } from "@/lib/format";
 import { clearWindowsHelloCredential, enrollWindowsHello } from "@/lib/windowsHello";
@@ -43,16 +29,17 @@ import { useAuthStore } from "@/store/authStore";
 import { useUiStore } from "@/store/uiStore";
 import {
   filterEntries,
+  folderCounts as computeFolderCounts,
   isDocument,
   isPassword,
   useVaultStore,
 } from "@/store/vaultStore";
 import type { BiometricStatus, DocumentMetaInput, EntryInput, VaultEntry } from "@/types";
 
-type NavView = "all" | "passwords" | "documents" | "settings";
-
 const PERSONAL_DOCUMENTS =
   "C:\\Users\\dania\\Documents\\Stuff\\Personal_Documents";
+
+type VaultListView = Exclude<VaultNavView, "settings">;
 
 export function VaultScreen() {
   const { lock } = useAuthStore();
@@ -73,7 +60,8 @@ export function VaultScreen() {
   } = useVaultStore();
   const { hibpEnabled, setHibpEnabled, inactivitySeconds, setInactivitySeconds } = useUiStore();
 
-  const [view, setView] = useState<NavView>("all");
+  const [view, setView] = useState<VaultNavView>("all");
+  const [lastVaultView, setLastVaultView] = useState<VaultListView>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<VaultEntry | null>(null);
   const [documentOpen, setDocumentOpen] = useState(false);
@@ -100,6 +88,7 @@ export function VaultScreen() {
 
   const passwordCount = useMemo(() => entries.filter(isPassword).length, [entries]);
   const documentCount = useMemo(() => entries.filter(isDocument).length, [entries]);
+  const folderCountMap = useMemo(() => computeFolderCounts(entries), [entries]);
 
   const kindFilter =
     view === "passwords" ? "password" : view === "documents" ? "document" : "all";
@@ -108,6 +97,40 @@ export function VaultScreen() {
     () => filterEntries(entries, query, folderFilter, tagFilter, kindFilter),
     [entries, query, folderFilter, tagFilter, kindFilter],
   );
+
+  function goToVaultView(next: VaultListView) {
+    setLastVaultView(next);
+    setView(next);
+  }
+
+  function handleViewChange(next: VaultNavView) {
+    if (next === "settings") {
+      setView("settings");
+      refreshBiometric().catch(() => undefined);
+      return;
+    }
+    goToVaultView(next);
+  }
+
+  function selectFolder(folder: string | null) {
+    if (view === "settings") {
+      goToVaultView(lastVaultView);
+    }
+    setFolderFilter(folder);
+  }
+
+  function selectTag(tag: string | null) {
+    if (view === "settings") {
+      goToVaultView(lastVaultView);
+    }
+    setTagFilter(tag);
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setFolderFilter(null);
+    setTagFilter(null);
+  }
 
   async function onSaveEntry(input: EntryInput) {
     if (editing && isPassword(editing)) {
@@ -146,6 +169,31 @@ export function VaultScreen() {
     }
     setEditing(entry);
     setDialogOpen(true);
+  }
+
+  function toastFolderImport(
+    imported: VaultEntry[],
+    skipped: { path: string; reason: string }[],
+    emptyMessage: string,
+  ) {
+    if (!imported.length && !skipped.length) {
+      toast.info(emptyMessage);
+      return;
+    }
+    if (imported.length) {
+      toast.success(
+        `Encrypted ${imported.length} document${imported.length === 1 ? "" : "s"} into the vault`,
+      );
+      goToVaultView("documents");
+    }
+    if (skipped.length) {
+      toast.message(`Skipped ${skipped.length} file${skipped.length === 1 ? "" : "s"}`, {
+        description: skipped
+          .slice(0, 3)
+          .map((item) => item.reason)
+          .join(" · "),
+      });
+    }
   }
 
   async function exportBackup() {
@@ -225,7 +273,7 @@ export function VaultScreen() {
         count += 1;
       }
       toast.success(`Encrypted ${count} document${count === 1 ? "" : "s"} into the vault`);
-      setView("documents");
+      goToVaultView("documents");
     } catch (cause) {
       toast.error("Document import failed", { description: String(cause) });
     } finally {
@@ -236,16 +284,8 @@ export function VaultScreen() {
   async function importPersonalFolder() {
     setImporting(true);
     try {
-      const imported = await importDocumentsFromFolder(
-        PERSONAL_DOCUMENTS,
-        "Personal Documents",
-      );
-      if (!imported.length) {
-        toast.info("No importable files found in Personal Documents");
-        return;
-      }
-      toast.success(`Encrypted ${imported.length} personal documents into Aegis`);
-      setView("documents");
+      const result = await importDocumentsFromFolder(PERSONAL_DOCUMENTS, "Personal Documents");
+      toastFolderImport(result.imported, result.skipped, "No importable files found in Personal Documents");
     } catch (cause) {
       toast.error("Could not import Personal Documents", { description: String(cause) });
     } finally {
@@ -258,9 +298,8 @@ export function VaultScreen() {
     try {
       const path = await open({ directory: true, multiple: false });
       if (typeof path !== "string") return;
-      const imported = await importDocumentsFromFolder(path, "Imported Documents");
-      toast.success(`Encrypted ${imported.length} documents into the vault`);
-      setView("documents");
+      const result = await importDocumentsFromFolder(path, "Imported Documents");
+      toastFolderImport(result.imported, result.skipped, "No importable files found in that folder");
     } catch (cause) {
       toast.error("Folder import failed", { description: String(cause) });
     } finally {
@@ -331,117 +370,27 @@ export function VaultScreen() {
           : "Vault";
 
   return (
-    <main className="aegis-app-bg min-h-screen">
-      <div className="mx-auto flex min-h-screen max-w-[1400px] gap-5 px-4 py-4 lg:px-6 lg:py-6">
-        <aside className="aegis-panel hidden w-[248px] shrink-0 flex-col rounded-[28px] p-4 lg:flex">
-          <div className="mb-6 flex items-center gap-3 px-2 pt-1">
-            <AegisLogo size="sm" />
-            <div>
-              <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                Local vault
-              </p>
-              <h1 className="text-base font-semibold tracking-tight">Aegis</h1>
-            </div>
-          </div>
+    <main className="aegis-app-bg aegis-shell min-h-[100dvh] w-full">
+      <div className="flex w-full min-h-[100dvh] gap-0 lg:gap-4 lg:p-4">
+        <div className="sticky top-0 hidden lg:block">
+          <VaultSidebar
+            view={view}
+            onViewChange={handleViewChange}
+            totalCount={entries.length}
+            passwordCount={passwordCount}
+            documentCount={documentCount}
+            folders={folders}
+            folderCounts={folderCountMap}
+            folderFilter={folderFilter}
+            onFolderSelect={selectFolder}
+            tags={tags}
+            tagFilter={tagFilter}
+            onTagSelect={selectTag}
+            onLock={lockNow}
+          />
+        </div>
 
-          <nav className="space-y-1">
-            <NavButton
-              active={view === "all"}
-              icon={<LayoutGrid className="size-4" />}
-              label="All items"
-              count={entries.length}
-              onClick={() => setView("all")}
-            />
-            <NavButton
-              active={view === "passwords"}
-              icon={<KeyRound className="size-4" />}
-              label="Passwords"
-              count={passwordCount}
-              onClick={() => setView("passwords")}
-            />
-            <NavButton
-              active={view === "documents"}
-              icon={<FileText className="size-4" />}
-              label="Documents"
-              count={documentCount}
-              onClick={() => setView("documents")}
-            />
-            <NavButton
-              active={view === "settings"}
-              icon={<Settings className="size-4" />}
-              label="Settings"
-              onClick={() => {
-                setView("settings");
-                refreshBiometric().catch(() => undefined);
-              }}
-            />
-          </nav>
-
-          <div className="mt-8 flex-1 overflow-hidden">
-            <p className="mb-2 flex items-center gap-2 px-2 text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-              <Folder className="size-3.5" />
-              Folders
-            </p>
-            <div className="space-y-1">
-              <FilterButton
-                active={!folderFilter}
-                count={
-                  kindFilter === "all"
-                    ? entries.length
-                    : kindFilter === "password"
-                      ? passwordCount
-                      : documentCount
-                }
-                label="All folders"
-                onClick={() => setFolderFilter(null)}
-              />
-              {folders.map((folder) => (
-                <FilterButton
-                  active={folderFilter === folder}
-                  count={
-                    entries.filter(
-                      (entry) =>
-                        entry.folder === folder &&
-                        (kindFilter === "all" ||
-                          (kindFilter === "password" ? isPassword(entry) : isDocument(entry))),
-                    ).length
-                  }
-                  key={folder}
-                  label={folder}
-                  onClick={() => setFolderFilter(folderFilter === folder ? null : folder)}
-                />
-              ))}
-            </div>
-
-            {tags.length ? (
-              <div className="mt-6">
-                <p className="mb-2 flex items-center gap-2 px-2 text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                  <Tag className="size-3.5" />
-                  Tags
-                </p>
-                <div className="flex flex-wrap gap-1.5 px-1">
-                  {tags.map((tag) => (
-                    <Badge
-                      className="cursor-pointer transition-transform active:scale-95"
-                      key={tag}
-                      variant={tagFilter === tag ? "default" : "secondary"}
-                      onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
-                    >
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <Button className="mt-4 w-full" variant="outline" onClick={lockNow}>
-            <Lock className="size-4" />
-            Lock vault
-          </Button>
-        </aside>
-
-        <section className="flex min-w-0 flex-1 flex-col gap-4">
+        <section className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:p-0">
           <header className="aegis-glass flex flex-wrap items-center justify-between gap-3 rounded-[28px] px-5 py-4">
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
@@ -466,14 +415,50 @@ export function VaultScreen() {
                     key={id}
                     size="sm"
                     variant={view === id ? "default" : "ghost"}
-                    onClick={() => setView(id)}
+                    onClick={() => handleViewChange(id)}
                   >
                     {label}
                   </Button>
                 ))}
               </div>
+
               {view !== "settings" ? (
                 <>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button className="lg:hidden" size="sm" variant="outline">
+                        <Folder className="size-4" />
+                        Folders
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel>Folders</DropdownMenuLabel>
+                      <DropdownMenuItem onClick={() => selectFolder(null)}>
+                        All folders
+                        <span className="ml-auto text-xs text-muted-foreground">{entries.length}</span>
+                      </DropdownMenuItem>
+                      {folders.map((folder) => (
+                        <DropdownMenuItem key={folder} onClick={() => selectFolder(folder)}>
+                          {folder}
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {folderCountMap[folder] ?? 0}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                      {tags.length ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>Tags</DropdownMenuLabel>
+                          {tags.map((tag) => (
+                            <DropdownMenuItem key={tag} onClick={() => selectTag(tag)}>
+                              {tag}
+                            </DropdownMenuItem>
+                          ))}
+                        </>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
                   {view !== "passwords" ? (
                     <Button disabled={importing} variant="secondary" onClick={importDocuments}>
                       {importing ? <Spinner /> : <FilePlus2 className="size-4" />}
@@ -499,7 +484,7 @@ export function VaultScreen() {
                 </>
               ) : null}
               <Button className="lg:hidden" variant="outline" onClick={lockNow}>
-                <Lock className="size-4" />
+                Lock
               </Button>
             </div>
           </header>
@@ -530,20 +515,38 @@ export function VaultScreen() {
             />
           ) : (
             <>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <SearchBar
-                    value={query}
-                    onChange={setQuery}
-                    placeholder={
-                      view === "documents"
-                        ? "Search documents by title, filename, or tag"
-                        : view === "passwords"
-                          ? "Search passwords by site, username, or tag"
-                          : "Search passwords and documents"
-                    }
-                  />
-                </div>
+              <div className="flex flex-col gap-3">
+                <SearchBar
+                  value={query}
+                  onChange={setQuery}
+                  placeholder={
+                    view === "documents"
+                      ? "Search documents by title, filename, or tag"
+                      : view === "passwords"
+                        ? "Search passwords by site, username, or tag"
+                        : "Search passwords and documents"
+                  }
+                />
+
+                {hasFilters ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {query ? (
+                      <FilterChip label={`Search: ${query}`} onClear={() => setQuery("")} />
+                    ) : null}
+                    {folderFilter ? (
+                      <FilterChip
+                        label={`Folder: ${folderFilter}`}
+                        onClear={() => setFolderFilter(null)}
+                      />
+                    ) : null}
+                    {tagFilter ? (
+                      <FilterChip label={`Tag: ${tagFilter}`} onClear={() => setTagFilter(null)} />
+                    ) : null}
+                    <Button size="sm" variant="ghost" onClick={clearFilters}>
+                      Clear filters
+                    </Button>
+                  </div>
+                ) : null}
               </div>
 
               {error ? (
@@ -559,12 +562,11 @@ export function VaultScreen() {
                   ))}
                 </div>
               ) : visibleEntries.length ? (
-                <ScrollArea className="-mr-3 h-[calc(100vh-210px)] pr-3">
-                  <div className="space-y-2.5">
-                    {visibleEntries.map((entry, index) => (
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className="space-y-2.5 pb-4 pr-3">
+                    {visibleEntries.map((entry) => (
                       <EntryRow
                         entry={entry}
-                        index={index}
                         key={entry.id}
                         onDelete={() => onDelete(entry)}
                         onOpen={() => openItem(entry)}
@@ -575,13 +577,16 @@ export function VaultScreen() {
               ) : (
                 <EmptyState
                   hasFilters={hasFilters}
-                  view={view === "documents" ? "documents" : view === "passwords" ? "passwords" : "all"}
+                  view={
+                    view === "documents" ? "documents" : view === "passwords" ? "passwords" : "all"
+                  }
                   onAddPassword={() => {
                     setEditing(null);
                     setDialogOpen(true);
                   }}
                   onAddDocuments={importDocuments}
                   onImportPersonal={importPersonalFolder}
+                  onClearFilters={clearFilters}
                 />
               )}
             </>
@@ -605,37 +610,19 @@ export function VaultScreen() {
   );
 }
 
-function NavButton({
-  active,
-  icon,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  count?: number;
-  onClick: () => void;
-}) {
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
   return (
-    <button
-      className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm transition-colors ${
-        active
-          ? "bg-foreground text-background"
-          : "text-muted-foreground hover:bg-foreground/8 hover:text-foreground"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      {icon}
-      <span className="flex-1 font-medium">{label}</span>
-      {typeof count === "number" ? (
-        <span className={`text-xs ${active ? "text-background/70" : "text-muted-foreground"}`}>
-          {count}
-        </span>
-      ) : null}
-    </button>
+    <Badge className="gap-1 pr-1" variant="secondary">
+      <span className="max-w-[14rem] truncate">{label}</span>
+      <button
+        aria-label={`Clear ${label}`}
+        className="rounded-full p-0.5 hover:bg-foreground/10"
+        onClick={onClear}
+        type="button"
+      >
+        <X className="size-3" />
+      </button>
+    </Badge>
   );
 }
 
@@ -645,12 +632,14 @@ function EmptyState({
   onAddPassword,
   onAddDocuments,
   onImportPersonal,
+  onClearFilters,
 }: {
   hasFilters: boolean;
   view: "all" | "passwords" | "documents";
   onAddPassword: () => void;
   onAddDocuments: () => void;
   onImportPersonal: () => void;
+  onClearFilters: () => void;
 }) {
   const title = hasFilters
     ? "No matching items"
@@ -666,13 +655,17 @@ function EmptyState({
       : "Add credentials and documents. Everything is encrypted with your master key before storage.";
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center rounded-[28px] border border-dashed py-20 text-center animate-in fade-in-0 zoom-in-95 duration-300">
+    <div className="flex flex-1 flex-col items-center justify-center rounded-[28px] border border-dashed py-20 text-center">
       <div className="mb-4 flex size-12 items-center justify-center rounded-2xl border bg-card text-muted-foreground">
         {view === "documents" ? <FileText className="size-6" /> : <Shield className="size-6" />}
       </div>
       <p className="text-sm font-medium">{title}</p>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">{body}</p>
-      {!hasFilters ? (
+      {hasFilters ? (
+        <Button className="mt-5" variant="outline" onClick={onClearFilters}>
+          Clear filters
+        </Button>
+      ) : (
         <div className="mt-5 flex flex-wrap justify-center gap-2">
           {view !== "documents" ? (
             <Button onClick={onAddPassword}>
@@ -695,254 +688,7 @@ function EmptyState({
             </>
           ) : null}
         </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SettingsPanel(props: {
-  biometric: BiometricStatus | null;
-  helloAvailable: boolean;
-  helloBusy: boolean;
-  hibpEnabled: boolean;
-  setHibpEnabled: (value: boolean) => void;
-  inactivitySeconds: number;
-  setInactivitySeconds: (value: number) => void;
-  updateTimeout: (seconds: number) => Promise<void>;
-  enrollBiometric: () => Promise<void>;
-  disableBiometric: () => Promise<void>;
-  exportPassphrase: string;
-  setExportPassphrase: (value: string) => void;
-  backupPassphrase: string;
-  setBackupPassphrase: (value: string) => void;
-  exporting: boolean;
-  importing: boolean;
-  exportBackup: () => Promise<void>;
-  importBackup: () => Promise<void>;
-  importBitwarden: () => Promise<void>;
-  importFolderPicker: () => Promise<void>;
-  importPersonalFolder: () => Promise<void>;
-}) {
-  return (
-    <div className="aegis-panel overflow-hidden rounded-[28px] animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-      <div className="border-b bg-background/35 px-6 py-6">
-        <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
-          Control center
-        </p>
-        <h3 className="mt-2 text-2xl font-semibold tracking-tight">Security and maintenance</h3>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Manage vault posture, documents, signed updates, Windows Hello, auto-lock, and encrypted
-          backups from one workspace.
-        </p>
-      </div>
-
-      <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
-        <div className="space-y-6">
-          <UpdatePanel />
-
-          <div className="aegis-glass rounded-2xl p-5">
-            <div className="flex items-start gap-4">
-              <AegisLogo className="shrink-0" size="sm" />
-              <div>
-                <Label>Vault posture</Label>
-                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                  Passwords and documents are encrypted locally with AES-256-GCM before storage.
-                  Document binaries live in encrypted blob files beside the SQLCipher database.
-                  Aegis does not sync vault content or send telemetry.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border bg-card/80 p-4">
-                <p className="text-xs text-muted-foreground">Storage</p>
-                <p className="mt-1 text-sm font-medium">SQLCipher + encrypted blobs</p>
-              </div>
-              <div className="rounded-xl border bg-card/80 p-4">
-                <p className="text-xs text-muted-foreground">Encryption</p>
-                <p className="mt-1 text-sm font-medium">AES-256-GCM</p>
-              </div>
-              <div className="rounded-xl border bg-card/80 p-4">
-                <p className="text-xs text-muted-foreground">Network</p>
-                <p className="mt-1 text-sm font-medium">Manual and opt-in</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="aegis-glass rounded-2xl p-5">
-            <div className="flex items-start justify-between gap-5">
-              <div className="flex items-start gap-4">
-                <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
-                  <Database className="size-5" />
-                </div>
-                <div>
-                  <Label>HIBP breach checks</Label>
-                  <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-                    Optional online check. Aegis sends only the first five SHA-1 characters of the
-                    password hash; the full password never leaves the device.
-                  </p>
-                </div>
-              </div>
-              <Switch checked={props.hibpEnabled} onCheckedChange={props.setHibpEnabled} />
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="aegis-glass rounded-2xl p-5">
-            <div className="flex items-start gap-4">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
-                <Clock className="size-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <Label htmlFor="timeout">Auto-lock timeout</Label>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  Lock the vault after inactivity. Shorter values reduce exposure on shared machines.
-                </p>
-                <div className="mt-4 flex items-center gap-3">
-                  <Input
-                    className="max-w-40"
-                    id="timeout"
-                    min={30}
-                    type="number"
-                    value={props.inactivitySeconds}
-                    onBlur={(event) => props.updateTimeout(Number(event.target.value))}
-                    onChange={(event) => props.setInactivitySeconds(Number(event.target.value))}
-                  />
-                  <span className="text-sm text-muted-foreground">seconds</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="aegis-glass rounded-2xl p-5">
-            <div className="flex items-start gap-4">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
-                <Fingerprint className="size-5" />
-              </div>
-              <div>
-                <Label>Windows Hello unlock</Label>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  Convenience unlock for this Windows profile. The vault key is protected with
-                  Windows DPAPI after an operating-system verification.
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 rounded-xl border bg-card/80 p-4">
-              <p className="text-xs text-muted-foreground">Current status</p>
-              <p className="mt-1 text-sm font-medium">
-                {props.helloAvailable
-                  ? props.biometric?.enrolled
-                    ? "Enabled for this vault"
-                    : "Available, not yet enabled"
-                  : "Not available in this window"}
-              </p>
-            </div>
-            <div className="mt-4">
-              {props.biometric?.enrolled ? (
-                <Button
-                  className="w-full"
-                  disabled={props.helloBusy}
-                  variant="destructive"
-                  onClick={props.disableBiometric}
-                >
-                  {props.helloBusy ? <Spinner /> : null}
-                  Disable Windows Hello
-                </Button>
-              ) : (
-                <Button
-                  className="w-full"
-                  disabled={!props.helloAvailable || props.helloBusy}
-                  onClick={props.enrollBiometric}
-                >
-                  {props.helloBusy ? <Spinner /> : <Fingerprint className="size-4" />}
-                  Enable Windows Hello
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="aegis-glass rounded-2xl p-5">
-            <div>
-              <Label>Data portability</Label>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                Export encrypted backups for passwords and documents, restore backups, migrate
-                Bitwarden CSV, or import document folders.
-              </p>
-            </div>
-
-            <Tabs defaultValue="export" className="mt-5">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="export">Export</TabsTrigger>
-                <TabsTrigger value="backup">Restore</TabsTrigger>
-                <TabsTrigger value="csv">CSV</TabsTrigger>
-                <TabsTrigger value="docs">Docs</TabsTrigger>
-              </TabsList>
-              <TabsContent value="export" className="space-y-3 pt-4">
-                <Input
-                  type="password"
-                  value={props.exportPassphrase}
-                  onChange={(event) => props.setExportPassphrase(event.target.value)}
-                  placeholder="Export passphrase (min 12 chars)"
-                />
-                <Button
-                  className="w-full"
-                  disabled={props.exportPassphrase.length < 12 || props.exporting}
-                  onClick={props.exportBackup}
-                >
-                  {props.exporting ? <Spinner /> : <Download className="size-4" />}
-                  Export encrypted backup
-                </Button>
-              </TabsContent>
-              <TabsContent value="backup" className="space-y-3 pt-4">
-                <Input
-                  type="password"
-                  value={props.backupPassphrase}
-                  onChange={(event) => props.setBackupPassphrase(event.target.value)}
-                  placeholder="Backup passphrase"
-                />
-                <Button
-                  className="w-full"
-                  disabled={props.backupPassphrase.length < 12 || props.importing}
-                  onClick={props.importBackup}
-                >
-                  {props.importing ? <Spinner /> : <Import className="size-4" />}
-                  Restore from backup
-                </Button>
-              </TabsContent>
-              <TabsContent value="csv" className="space-y-3 pt-4">
-                <Button
-                  className="w-full"
-                  disabled={props.importing}
-                  variant="secondary"
-                  onClick={props.importBitwarden}
-                >
-                  {props.importing ? <Spinner /> : <Import className="size-4" />}
-                  Import Bitwarden CSV
-                </Button>
-              </TabsContent>
-              <TabsContent value="docs" className="space-y-3 pt-4">
-                <Button
-                  className="w-full"
-                  disabled={props.importing}
-                  onClick={props.importPersonalFolder}
-                >
-                  {props.importing ? <Spinner /> : <FolderOpen className="size-4" />}
-                  Import Personal Documents
-                </Button>
-                <Button
-                  className="w-full"
-                  disabled={props.importing}
-                  variant="secondary"
-                  onClick={props.importFolderPicker}
-                >
-                  {props.importing ? <Spinner /> : <Folder className="size-4" />}
-                  Choose folder to import
-                </Button>
-              </TabsContent>
-            </Tabs>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

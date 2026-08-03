@@ -167,8 +167,61 @@ mod tests {
     fn document_metadata_defaults_kind_to_password_for_legacy_entries() {
         let legacy = br#"{"id":"1","url":"https://a.test","username":"u","password":"p","notes":"","folder":null,"tags":[],"created_at":"t","updated_at":"t"}"#;
         let entry: crate::vault::VaultEntry = serde_json::from_slice(legacy).unwrap();
-        assert_eq!(entry.kind, "password");
-        assert_eq!(entry.title, "");
-        assert_eq!(entry.size_bytes, 0);
+        let normalized = crate::vault::normalize_entry(entry);
+        assert_eq!(normalized.kind, "password");
+        assert_eq!(normalized.title, "");
+        assert_eq!(normalized.size_bytes, 0);
+    }
+
+    #[test]
+    fn normalize_kind_coerces_unknown_to_password() {
+        assert_eq!(crate::vault::normalize_kind("DOCUMENT"), "document");
+        assert_eq!(crate::vault::normalize_kind(" document "), "document");
+        assert_eq!(crate::vault::normalize_kind("weird"), "password");
+        assert_eq!(crate::vault::normalize_kind(""), "password");
+    }
+
+    #[test]
+    fn list_entries_soft_fails_corrupt_blobs() {
+        let dir = std::env::temp_dir().join(format!("aegis-soft-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let db_file = dir.join("vault.db");
+        let salt = random_bytes::<SALT_LEN>();
+        let key = derive_key("correct horse battery staple", &salt, &KdfParams::default()).unwrap();
+        {
+            let conn = db::open_encrypted_path(&db_file, &key).unwrap();
+            db::migrate(&conn).unwrap();
+            let good = serde_json::json!({
+                "kind": "password",
+                "id": "good-1",
+                "url": "https://ok.test",
+                "username": "u",
+                "password": "p",
+                "notes": "",
+                "folder": "Work",
+                "tags": [],
+                "created_at": "t",
+                "updated_at": "t",
+                "title": "",
+                "filename": "",
+                "mime_type": "",
+                "size_bytes": 0
+            });
+            let plaintext = Zeroizing::new(serde_json::to_vec(&good).unwrap());
+            let encrypted = encrypt(&key, &plaintext).unwrap();
+            db::upsert_entry(&conn, "good-1", &encrypted, "t", "t").unwrap();
+            db::upsert_entry(&conn, "bad-1", b"not-a-valid-ciphertext", "t", "t").unwrap();
+        }
+
+        let conn = db::open_encrypted_path(&db_file, &key).unwrap();
+        let mut recovered = Vec::new();
+        for blob in db::all_encrypted_entries(&conn).unwrap() {
+            if let Ok(entry) = crate::vault::decrypt_entry(&key, &blob) {
+                recovered.push(entry);
+            }
+        }
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].id, "good-1");
+        let _ = fs::remove_dir_all(dir);
     }
 }

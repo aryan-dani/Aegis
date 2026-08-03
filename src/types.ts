@@ -41,6 +41,11 @@ export type DocumentPreview = {
   data_base64: string;
 };
 
+export type FolderImportResult = {
+  imported: VaultEntry[];
+  skipped: { path: string; reason: string }[];
+};
+
 export type GeneratePasswordOptions = {
   length: number;
   uppercase: boolean;

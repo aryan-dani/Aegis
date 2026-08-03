@@ -31,12 +31,7 @@ function App() {
   return (
     <TooltipProvider delayDuration={200}>
       {initialized ? (
-        <div
-          key={unlocked ? "vault" : "auth"}
-          className="animate-in fade-in-0 duration-300"
-        >
-          {unlocked ? <VaultScreen /> : <AuthScreen />}
-        </div>
+        unlocked ? <VaultScreen /> : <AuthScreen />
       ) : (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background text-muted-foreground">
           <AegisLogo size="md" />

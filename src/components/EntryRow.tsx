@@ -22,19 +22,21 @@ import type { VaultEntry } from "@/types";
 
 type EntryRowProps = {
   entry: VaultEntry;
-  index: number;
   onDelete: () => Promise<void>;
   onOpen: () => void;
 };
 
-export function EntryRow({ entry, index, onDelete, onOpen }: EntryRowProps) {
+export function EntryRow({ entry, onDelete, onOpen }: EntryRowProps) {
   const document = isDocument(entry);
   const [copied, setCopied] = useState<"password" | "username" | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   async function copy(kind: "password" | "username") {
     const value = kind === "password" ? entry.password : entry.username;
-    if (!value) return;
+    if (!value) {
+      toast.error(kind === "password" ? "No password to copy" : "No username to copy");
+      return;
+    }
     await api.copySecret(value);
     setCopied(kind);
     toast.success(`${kind === "password" ? "Password" : "Username"} copied`, {
@@ -44,17 +46,13 @@ export function EntryRow({ entry, index, onDelete, onOpen }: EntryRowProps) {
   }
 
   return (
-    <div
-      className="group relative flex items-center gap-3 overflow-hidden rounded-2xl border bg-card/60 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:bg-card/90 hover:shadow-[0_16px_50px_rgba(0,0,0,0.28)] animate-in fade-in-0 slide-in-from-bottom-1"
-      style={{ animationDelay: `${Math.min(index, 12) * 25}ms` }}
-    >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/18 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+    <div className="group flex items-center gap-3 rounded-2xl border bg-card/60 p-3 transition-colors hover:border-foreground/20 hover:bg-card/90">
       <button
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
         onClick={onOpen}
         type="button"
       >
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-background/80 font-mono text-xs font-semibold text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-background/80 font-mono text-xs font-semibold text-muted-foreground">
           {document ? <FileText className="size-4" /> : entryInitials(entry)}
         </div>
         <div className="min-w-0">
@@ -68,15 +66,15 @@ export function EntryRow({ entry, index, onDelete, onOpen }: EntryRowProps) {
       </button>
 
       <div className="flex shrink-0 items-center gap-2">
-        <Badge className="hidden capitalize md:inline-flex" variant="outline">
+        <Badge className="hidden capitalize sm:inline-flex" variant="outline">
           {document ? "Document" : "Password"}
         </Badge>
         {entry.folder ? (
-          <Badge className="hidden lg:inline-flex" variant="secondary">
+          <Badge className="hidden max-w-[9rem] truncate md:inline-flex" variant="secondary">
             {entry.folder}
           </Badge>
         ) : null}
-        <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
+        <div className="flex items-center gap-0.5">
           {!document && entry.username ? (
             <Button
               aria-label="Copy username"

@@ -136,10 +136,21 @@ pub fn get_entry(app: AppHandle, state: State<'_, AppState>, id: String) -> Resu
 pub fn list_entries(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<VaultEntry>> {
     let key = Zeroizing::new(state.key_copy()?);
     let conn = db::open_encrypted(&app, &key)?;
-    db::all_encrypted_entries(&conn)?
-        .iter()
-        .map(|blob| decrypt_entry(&key, blob))
-        .collect()
+    let mut entries = Vec::new();
+    let mut skipped = 0u32;
+    for blob in db::all_encrypted_entries(&conn)? {
+        match decrypt_entry(&key, &blob) {
+            Ok(entry) => entries.push(normalize_entry(entry)),
+            Err(error) => {
+                skipped += 1;
+                eprintln!("aegis: skipping undecryptable vault entry: {error}");
+            }
+        }
+    }
+    if skipped > 0 {
+        eprintln!("aegis: skipped {skipped} corrupt or unreadable vault entr(y/ies)");
+    }
+    Ok(entries)
 }
 
 #[tauri::command]
@@ -224,13 +235,8 @@ pub fn update_entry(
 pub fn delete_entry(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<()> {
     let key = Zeroizing::new(state.key_copy()?);
     let conn = db::open_encrypted(&app, &key)?;
-    if let Ok(blob) = db::encrypted_entry(&conn, &id) {
-        if let Ok(entry) = decrypt_entry(&key, &blob) {
-            if entry.kind == KIND_DOCUMENT {
-                documents::delete_blob(&app, &id)?;
-            }
-        }
-    }
+    // Always attempt blob cleanup so document files are not orphaned when meta decrypt fails.
+    let _ = documents::delete_blob(&app, &id);
     db::delete_entry(&conn, &id)
 }
 
@@ -311,17 +317,31 @@ pub fn export_vault(
     let key = Zeroizing::new(state.key_copy()?);
     let entries = list_entries(app.clone(), state)?;
     let mut documents = Vec::new();
+    let mut missing_blobs = 0u32;
     for entry in &entries {
         if entry.kind == KIND_DOCUMENT {
-            let mut bytes =
-                Zeroizing::new(documents::document_bytes_for_export(&app, &key, &entry.id)?);
-            documents.push(ExportDocumentBlob {
-                id: entry.id.clone(),
-                content_b64: base64::engine::general_purpose::STANDARD_NO_PAD
-                    .encode(bytes.as_slice()),
-            });
-            bytes.zeroize();
+            match documents::document_bytes_for_export(&app, &key, &entry.id) {
+                Ok(raw) => {
+                    let mut bytes = Zeroizing::new(raw);
+                    documents.push(ExportDocumentBlob {
+                        id: entry.id.clone(),
+                        content_b64: base64::engine::general_purpose::STANDARD_NO_PAD
+                            .encode(bytes.as_slice()),
+                    });
+                    bytes.zeroize();
+                }
+                Err(error) => {
+                    missing_blobs += 1;
+                    eprintln!(
+                        "aegis: skipping missing document blob {} during export: {error}",
+                        entry.id
+                    );
+                }
+            }
         }
+    }
+    if missing_blobs > 0 {
+        eprintln!("aegis: export continued with {missing_blobs} missing document blob(s)");
     }
 
     let payload = ExportPayloadV2 {
@@ -378,14 +398,33 @@ pub fn import_encrypted_backup(
     };
 
     let key = Zeroizing::new(state.key_copy()?);
+    let mut id_map = std::collections::HashMap::<String, String>::new();
+    let conn = db::open_encrypted(&app, &key)?;
+    let mut remapped = Vec::with_capacity(entries.len());
+    for mut entry in entries {
+        entry = normalize_entry(entry);
+        let original_id = entry.id.clone();
+        if entry.id.trim().is_empty() || db::encrypted_entry(&conn, &entry.id).is_ok() {
+            entry.id = Uuid::new_v4().to_string();
+        }
+        if entry.kind == KIND_DOCUMENT && original_id != entry.id {
+            id_map.insert(original_id, entry.id.clone());
+        }
+        remapped.push(entry);
+    }
+
     for blob in document_blobs {
+        let target_id = id_map
+            .get(&blob.id)
+            .cloned()
+            .unwrap_or_else(|| blob.id.clone());
         let bytes = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(blob.content_b64)
             .map_err(|_| AegisError::InvalidInput("invalid document blob".to_string()))?;
-        documents::restore_document_blob(&app, &key, &blob.id, &bytes)?;
+        documents::restore_document_blob(&app, &key, &target_id, &bytes)?;
     }
 
-    insert_imported_entries(app, state, entries)
+    insert_imported_entries(app, state, remapped)
 }
 
 #[tauri::command]
@@ -455,11 +494,17 @@ fn insert_imported_entries(
     let key = Zeroizing::new(state.key_copy()?);
     let conn = db::open_encrypted(&app, &key)?;
     for entry in &mut entries {
-        if entry.id.trim().is_empty() {
+        *entry = normalize_entry(entry.clone());
+        let previous_id = entry.id.clone();
+        // Mint a new ID on empty or collision so restores never silently overwrite.
+        if entry.id.trim().is_empty() || db::encrypted_entry(&conn, &entry.id).is_ok() {
             entry.id = Uuid::new_v4().to_string();
-        }
-        if entry.kind.trim().is_empty() {
-            entry.kind = KIND_PASSWORD.to_string();
+            if entry.kind == KIND_DOCUMENT
+                && !previous_id.trim().is_empty()
+                && previous_id != entry.id
+            {
+                let _ = documents::rename_blob(&app, &previous_id, &entry.id);
+            }
         }
         entry.updated_at = chrono::Utc::now().to_rfc3339();
         let plaintext = Zeroizing::new(serde_json::to_vec(entry)?);
@@ -475,11 +520,23 @@ fn insert_imported_entries(
     Ok(entries)
 }
 
+pub fn normalize_kind(kind: &str) -> String {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        KIND_DOCUMENT => KIND_DOCUMENT.to_string(),
+        _ => KIND_PASSWORD.to_string(),
+    }
+}
+
+pub fn normalize_entry(mut entry: VaultEntry) -> VaultEntry {
+    entry.kind = normalize_kind(&entry.kind);
+    entry
+}
+
 pub fn decrypt_entry(key: &[u8; 32], blob: &[u8]) -> Result<VaultEntry> {
     let mut plaintext = Zeroizing::new(decrypt(key, blob)?);
-    let entry = serde_json::from_slice(&plaintext)?;
+    let entry: VaultEntry = serde_json::from_slice(&plaintext)?;
     plaintext.zeroize();
-    Ok(entry)
+    Ok(normalize_entry(entry))
 }
 
 pub fn clean_optional(value: Option<String>) -> Option<String> {

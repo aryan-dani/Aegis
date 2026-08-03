@@ -168,6 +168,11 @@ select {
 }
 
 @layer components {
+  .aegis-shell {
+    width: 100%;
+    min-height: 100dvh;
+  }
+
   .aegis-app-bg {
     position: relative;
     background:

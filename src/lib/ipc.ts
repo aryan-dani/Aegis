@@ -5,6 +5,7 @@ import type {
   DocumentMetaInput,
   DocumentPreview,
   EntryInput,
+  FolderImportResult,
   GeneratePasswordOptions,
   VaultEntry,
 } from "@/types";
@@ -43,7 +44,7 @@ export const api = {
       notes: notes ?? null,
     }),
   importDocumentsFromFolder: (path: string, folder?: string | null) =>
-    invoke<VaultEntry[]>("import_documents_from_folder", {
+    invoke<FolderImportResult>("import_documents_from_folder", {
       path,
       folder: folder ?? null,
     }),

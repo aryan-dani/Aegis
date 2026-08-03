@@ -18,7 +18,10 @@ type VaultState = {
     tags?: string[],
     notes?: string | null,
   ) => Promise<VaultEntry>;
-  importDocumentsFromFolder: (path: string, folder?: string | null) => Promise<VaultEntry[]>;
+  importDocumentsFromFolder: (path: string, folder?: string | null) => Promise<{
+    imported: VaultEntry[];
+    skipped: { path: string; reason: string }[];
+  }>;
   updateDocument: (id: string, input: DocumentMetaInput) => Promise<VaultEntry>;
   remove: (id: string) => Promise<void>;
   wipe: () => void;
@@ -27,10 +30,15 @@ type VaultState = {
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+export function normalizeKind(kind: string | undefined | null): "password" | "document" {
+  const value = (kind ?? "").trim().toLowerCase();
+  return value === "document" ? "document" : "password";
+}
+
 function normalizeEntry(entry: VaultEntry): VaultEntry {
   return {
     ...entry,
-    kind: entry.kind || "password",
+    kind: normalizeKind(entry.kind),
     title: entry.title || "",
     filename: entry.filename || "",
     mime_type: entry.mime_type || "",
@@ -89,13 +97,14 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     return entry;
   },
   importDocumentsFromFolder: async (path, folder) => {
-    const imported = (await api.importDocumentsFromFolder(path, folder)).map(normalizeEntry);
+    const result = await api.importDocumentsFromFolder(path, folder);
+    const imported = result.imported.map(normalizeEntry);
     let entries = get().entries;
     for (const entry of imported) {
       entries = upsert(entries, entry);
     }
     set({ entries, ...deriveFacets(entries), loaded: true, error: null });
-    return imported;
+    return { imported, skipped: result.skipped };
   },
   updateDocument: async (id, input) => {
     const entry = normalizeEntry(await api.updateDocumentMeta(id, input));
@@ -120,11 +129,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 }));
 
 export function isDocument(entry: VaultEntry) {
-  return entry.kind === "document";
+  return normalizeKind(entry.kind) === "document";
 }
 
 export function isPassword(entry: VaultEntry) {
-  return !isDocument(entry);
+  return normalizeKind(entry.kind) === "password";
+}
+
+/** Total item count per folder (all kinds). Stable across Passwords/Documents views. */
+export function folderCounts(entries: VaultEntry[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const entry of entries) {
+    const folder = entry.folder?.trim();
+    if (!folder) continue;
+    counts[folder] = (counts[folder] ?? 0) + 1;
+  }
+  return counts;
 }
 
 export function filterEntries(
@@ -136,7 +156,7 @@ export function filterEntries(
 ): VaultEntry[] {
   const needle = query.trim().toLowerCase();
   return entries.filter((entry) => {
-    if (kind === "password" && isDocument(entry)) return false;
+    if (kind === "password" && !isPassword(entry)) return false;
     if (kind === "document" && !isDocument(entry)) return false;
     if (folder && entry.folder !== folder) return false;
     if (tag && !entry.tags.includes(tag)) return false;
