@@ -44,6 +44,7 @@ export function EntryDialog({ entry, open, onOpenChange, onSave }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [breach, setBreach] = useState<string | null>(null);
+  const [allowBreachedSave, setAllowBreachedSave] = useState(false);
   const tagsValue = useMemo(() => input.tags.join(", "), [input.tags]);
 
   useEffect(() => {
@@ -60,29 +61,36 @@ export function EntryDialog({ entry, open, onOpenChange, onSave }: Props) {
         : emptyInput,
     );
     setBreach(null);
+    setAllowBreachedSave(false);
     setShowPassword(false);
   }, [entry, open]);
 
   function update<K extends keyof EntryInput>(key: K, value: EntryInput[K]) {
     setInput((current) => ({ ...current, [key]: value }));
+    if (key === "password") {
+      setBreach(null);
+      setAllowBreachedSave(false);
+    }
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  async function persist(skipBreachCheck: boolean) {
     setBusy(true);
-    setBreach(null);
     try {
-      if (hibpEnabled && input.password) {
+      if (!skipBreachCheck && hibpEnabled && input.password) {
         const result = await api.checkPasswordBreach(input.password);
         if (result.found) {
           setBreach(
             `This password appears ${result.count.toLocaleString()} times in known breaches.`,
           );
-          setBusy(false);
+          setAllowBreachedSave(true);
           return;
         }
       }
-      await onSave(input);
+      const cleaned: EntryInput = {
+        ...input,
+        tags: input.tags.map((tag) => tag.trim()).filter(Boolean),
+      };
+      await onSave(cleaned);
       toast.success(entry ? "Entry updated" : "Entry added", {
         description: "Encrypted with AES-256-GCM before it touched disk.",
       });
@@ -92,6 +100,11 @@ export function EntryDialog({ entry, open, onOpenChange, onSave }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await persist(false);
   }
 
   return (
@@ -195,17 +208,34 @@ export function EntryDialog({ entry, open, onOpenChange, onSave }: Props) {
             {breach ? (
               <Alert variant="destructive">
                 <ShieldAlert className="size-4" />
-                <AlertTitle>Breached password blocked</AlertTitle>
-                <AlertDescription>{breach}</AlertDescription>
+                <AlertTitle>Breached password detected</AlertTitle>
+                <AlertDescription>
+                  <p>{breach}</p>
+                  <p className="mt-2">
+                    Prefer generating a new password. You can still save this one if you understand
+                    the risk.
+                  </p>
+                </AlertDescription>
               </Alert>
             ) : null}
-            <DialogFooter>
+            <DialogFooter className="flex-wrap gap-2 sm:justify-end">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
+              {allowBreachedSave ? (
+                <Button
+                  disabled={busy || !input.password}
+                  type="button"
+                  variant="destructive"
+                  onClick={() => persist(true)}
+                >
+                  {busy ? <Spinner /> : null}
+                  Save anyway
+                </Button>
+              ) : null}
               <Button disabled={busy || !input.password} type="submit">
                 {busy ? <Spinner /> : null}
-                {busy ? "Saving" : "Save encrypted entry"}
+                {busy ? "Saving" : allowBreachedSave ? "Check again" : "Save encrypted entry"}
               </Button>
             </DialogFooter>
           </div>

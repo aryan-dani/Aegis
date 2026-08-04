@@ -39,6 +39,7 @@ export function DocumentDialog({ entry, open, onOpenChange, onSave }: DocumentDi
 
   useEffect(() => {
     if (!open || !entry) return;
+    const requestId = entry.id;
     setTitle(entry.title || entry.filename);
     setNotes(entry.notes || "");
     setFolder(entry.folder || "");
@@ -46,13 +47,25 @@ export function DocumentDialog({ entry, open, onOpenChange, onSave }: DocumentDi
     setEditing(false);
     setPreview(null);
     setLoadingPreview(true);
+    let cancelled = false;
     api
       .getDocumentPreview(entry.id)
-      .then(setPreview)
-      .catch((cause) => {
-        toast.error("Could not decrypt document preview", { description: String(cause) });
+      .then((result) => {
+        if (!cancelled && result.id === requestId) {
+          setPreview(result);
+        }
       })
-      .finally(() => setLoadingPreview(false));
+      .catch((cause) => {
+        if (!cancelled) {
+          toast.error("Could not load document preview", { description: String(cause) });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPreview(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, entry]);
 
   async function handleSave(event: FormEvent) {
@@ -102,7 +115,7 @@ export function DocumentDialog({ entry, open, onOpenChange, onSave }: DocumentDi
 
   const isImage = (preview?.mime_type || entry.mime_type).startsWith("image/");
   const dataUrl =
-    preview && isImage
+    preview && isImage && preview.data_base64
       ? `data:${preview.mime_type};base64,${preview.data_base64}`
       : null;
 
@@ -121,7 +134,7 @@ export function DocumentDialog({ entry, open, onOpenChange, onSave }: DocumentDi
             {loadingPreview ? (
               <div className="flex h-72 items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Spinner />
-                Decrypting preview
+                Loading preview
               </div>
             ) : dataUrl ? (
               <img
@@ -132,7 +145,11 @@ export function DocumentDialog({ entry, open, onOpenChange, onSave }: DocumentDi
             ) : (
               <div className="flex h-56 flex-col items-center justify-center gap-3 text-muted-foreground">
                 <FileText className="size-10" />
-                <p className="text-sm">Preview not available for this file type</p>
+                <p className="text-sm">
+                  {isImage
+                    ? "Image is too large to preview in-app. Export to view it."
+                    : "In-app preview is available for images. Export to open this file."}
+                </p>
                 <p className="text-xs">{entry.filename}</p>
               </div>
             )}

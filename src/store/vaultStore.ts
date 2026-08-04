@@ -9,6 +9,7 @@ type VaultState = {
   loaded: boolean;
   loading: boolean;
   error: string | null;
+  skippedCorrupt: number;
   load: () => Promise<void>;
   add: (input: EntryInput) => Promise<VaultEntry>;
   update: (id: string, input: EntryInput) => Promise<VaultEntry>;
@@ -69,11 +70,19 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   loaded: false,
   loading: false,
   error: null,
+  skippedCorrupt: 0,
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const entries = (await api.listEntries()).map(normalizeEntry);
-      set({ entries, ...deriveFacets(entries), loaded: true, loading: false });
+      const result = await api.listEntries();
+      const entries = result.entries.map(normalizeEntry);
+      set({
+        entries,
+        ...deriveFacets(entries),
+        loaded: true,
+        loading: false,
+        skippedCorrupt: result.skipped_corrupt,
+      });
     } catch (error) {
       set({ error: message(error), loading: false });
     }
@@ -125,6 +134,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       loaded: false,
       loading: false,
       error: null,
+      skippedCorrupt: 0,
     }),
 }));
 

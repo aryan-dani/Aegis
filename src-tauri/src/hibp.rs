@@ -1,5 +1,6 @@
 use sha1::{Digest, Sha1};
 use tauri::State;
+use zeroize::Zeroize;
 
 use crate::{
     error::{AegisError, Result},
@@ -15,11 +16,12 @@ pub struct BreachCheckResult {
 #[tauri::command]
 pub async fn check_password_breach(
     state: State<'_, AppState>,
-    password: String,
+    mut password: String,
 ) -> Result<BreachCheckResult> {
     let _ = state.key_copy()?;
     let mut hasher = Sha1::new();
     hasher.update(password.as_bytes());
+    password.zeroize();
     let hash = hex::encode_upper(hasher.finalize());
     let (prefix, suffix) = hash.split_at(5);
     let url = format!("https://api.pwnedpasswords.com/range/{prefix}");

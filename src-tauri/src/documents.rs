@@ -20,6 +20,7 @@ use crate::{
 pub const KIND_PASSWORD: &str = "password";
 pub const KIND_DOCUMENT: &str = "document";
 const MAX_DOCUMENT_BYTES: usize = 25 * 1024 * 1024;
+const MAX_PREVIEW_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 const BLOBS_DIR: &str = "blobs";
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -114,7 +115,13 @@ pub fn write_encrypted_blob(app: &AppHandle, key: &[u8; 32], id: &str, bytes: &[
         )));
     }
     let encrypted = encrypt(key, bytes)?;
-    fs::write(blob_path(app, id)?, encrypted)?;
+    let path = blob_path(app, id)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temp = path.with_extension("enc.tmp");
+    fs::write(&temp, encrypted)?;
+    fs::rename(temp, path)?;
     Ok(())
 }
 
@@ -261,7 +268,7 @@ pub fn import_documents_from_folder(
         .collect::<Vec<_>>();
     entries.sort();
 
-    let target_folder = folder.or_else(|| Some("Personal Documents".to_string()));
+    let target_folder = folder;
     for file_path in entries {
         let display = file_path.to_string_lossy().to_string();
         match import_document_with_key(
@@ -269,7 +276,7 @@ pub fn import_documents_from_folder(
             &key,
             &file_path,
             target_folder.clone(),
-            vec!["identity".to_string()],
+            Vec::new(),
             None,
         ) {
             Ok(entry) => imported.push(entry),
@@ -326,9 +333,18 @@ pub fn get_document_preview(
             "entry is not a document".to_string(),
         ));
     }
-    let mut bytes = Zeroizing::new(read_encrypted_blob(&app, &key, &id)?);
-    let data_base64 = base64::engine::general_purpose::STANDARD.encode(bytes.as_slice());
-    bytes.zeroize();
+
+    let include_bytes = entry.mime_type.starts_with("image/")
+        && entry.size_bytes as usize <= MAX_PREVIEW_IMAGE_BYTES;
+    let data_base64 = if include_bytes {
+        let mut bytes = Zeroizing::new(read_encrypted_blob(&app, &key, &id)?);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes.as_slice());
+        bytes.zeroize();
+        encoded
+    } else {
+        String::new()
+    };
+
     Ok(DocumentPreview {
         id: entry.id,
         filename: entry.filename,

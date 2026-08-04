@@ -5,8 +5,10 @@ import type {
   DocumentMetaInput,
   DocumentPreview,
   EntryInput,
+  ExportResult,
   FolderImportResult,
   GeneratePasswordOptions,
+  ListEntriesResult,
   VaultEntry,
 } from "@/types";
 
@@ -20,8 +22,13 @@ export const api = {
   lockVault: () => invoke<void>("lock_vault"),
   setInactivityTimeout: (seconds: number) =>
     invoke<void>("set_inactivity_timeout", { seconds }),
+  touchActivity: () => invoke<void>("touch_activity"),
+  changeMasterPassword: (currentPassword: string, newPassword: string) =>
+    invoke<void>("change_master_password", { currentPassword, newPassword }),
+  destroyVault: (masterPassword: string) =>
+    invoke<void>("destroy_vault", { masterPassword }),
 
-  listEntries: () => invoke<VaultEntry[]>("list_entries"),
+  listEntries: () => invoke<ListEntriesResult>("list_entries"),
   searchVault: (query: string) => invoke<VaultEntry[]>("search_vault", { query }),
   addEntry: (input: EntryInput) => invoke<VaultEntry>("add_entry", { input }),
   getEntry: (id: string) => invoke<VaultEntry>("get_entry", { id }),
@@ -60,9 +67,10 @@ export const api = {
   copySecret: (text: string) => invoke<void>("copy_secret", { text }),
   checkPasswordBreach: (password: string) =>
     invoke<BreachCheckResult>("check_password_breach", { password }),
+  openExternalUrl: (url: string) => invoke<void>("open_external_url", { url }),
 
   exportVault: (passphrase: string, path: string) =>
-    invoke<void>("export_vault", { passphrase, path }),
+    invoke<ExportResult>("export_vault", { passphrase, path }),
   importEncryptedBackup: (passphrase: string, path: string) =>
     invoke<VaultEntry[]>("import_encrypted_backup", { passphrase, path }),
   importBitwardenCsv: (path: string) =>

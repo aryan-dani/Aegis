@@ -46,6 +46,17 @@ export type FolderImportResult = {
   skipped: { path: string; reason: string }[];
 };
 
+export type ExportResult = {
+  entry_count: number;
+  document_count: number;
+  missing_blob_count: number;
+};
+
+export type ListEntriesResult = {
+  entries: VaultEntry[];
+  skipped_corrupt: number;
+};
+
 export type GeneratePasswordOptions = {
   length: number;
   uppercase: boolean;

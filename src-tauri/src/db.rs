@@ -60,14 +60,48 @@ pub fn vault_exists(app: &AppHandle) -> Result<bool> {
     Ok(db_path(app)?.exists() && meta_path(app)?.exists())
 }
 
+/// Removes a half-initialized vault (db without meta, or vice versa) so create can retry safely.
+pub fn purge_incomplete_vault(app: &AppHandle) -> Result<()> {
+    let db = db_path(app)?;
+    let meta = meta_path(app)?;
+    let db_ok = db.exists();
+    let meta_ok = meta.exists();
+    if db_ok && meta_ok {
+        return Ok(());
+    }
+    if db_ok {
+        let _ = fs::remove_file(&db);
+    }
+    if meta_ok {
+        let _ = fs::remove_file(&meta);
+    }
+    Ok(())
+}
+
+/// Deletes vault db + meta files (used on failed create rollback).
+pub fn remove_vault_files(app: &AppHandle) -> Result<()> {
+    let db = db_path(app)?;
+    let meta = meta_path(app)?;
+    if db.exists() {
+        fs::remove_file(db)?;
+    }
+    if meta.exists() {
+        fs::remove_file(meta)?;
+    }
+    Ok(())
+}
+
 pub fn read_meta(app: &AppHandle) -> Result<VaultMeta> {
     let contents = fs::read_to_string(meta_path(app)?)?;
     Ok(serde_json::from_str(&contents)?)
 }
 
 pub fn write_meta(app: &AppHandle, meta: &VaultMeta) -> Result<()> {
+    let path = meta_path(app)?;
     let contents = serde_json::to_string_pretty(meta)?;
-    fs::write(meta_path(app)?, contents)?;
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, contents)?;
+    fs::rename(temp, path)?;
     Ok(())
 }
 

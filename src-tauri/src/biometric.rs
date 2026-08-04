@@ -31,9 +31,12 @@ pub fn biometric_status(app: AppHandle) -> Result<BiometricStatus> {
 pub fn enroll_biometric(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     let _ = state.key_copy()?;
 
+    // Interactive Windows Hello / WebAuthn runs in the WebView first.
+    // Calling UserConsentVerifier::RequestVerificationAsync from a Tauri
+    // command thread deadlocks the UI ("Not Responding").
     let key = Zeroizing::new(state.key_copy()?);
     let protected = platform_protect_key(&key)?;
-    fs::write(biometric_key_path(&app)?, protected)?;
+    atomic_write(biometric_key_path(&app)?, &protected)?;
     Ok(())
 }
 
@@ -91,15 +94,22 @@ fn biometric_key_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(db::vault_dir(app)?.join(BIOMETRIC_KEY_FILE))
 }
 
+fn atomic_write(path: PathBuf, bytes: &[u8]) -> Result<()> {
+    let temp = path.with_extension("tmp");
+    fs::write(&temp, bytes)?;
+    fs::rename(&temp, path)?;
+    Ok(())
+}
+
 #[cfg(windows)]
 fn platform_biometric_status() -> Result<BiometricStatus> {
     use windows::{
         Security::Credentials::UI::{UserConsentVerifier, UserConsentVerifierAvailability},
-        Win32::System::WinRT::{RoInitialize, RO_INIT_SINGLETHREADED},
+        Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED},
     };
 
     unsafe {
-        let _ = RoInitialize(RO_INIT_SINGLETHREADED);
+        let _ = RoInitialize(RO_INIT_MULTITHREADED);
     }
 
     let available = UserConsentVerifier::CheckAvailabilityAsync()
@@ -108,7 +118,7 @@ fn platform_biometric_status() -> Result<BiometricStatus> {
         == UserConsentVerifierAvailability::Available;
 
     let message = if available {
-        "Windows Hello is verified by the operating system before key release."
+        "Windows Hello is available. Confirm in the app window, then Aegis unwraps the vault key with DPAPI."
     } else {
         "Windows Hello is not configured on this device. Set it up in Windows Settings."
     }

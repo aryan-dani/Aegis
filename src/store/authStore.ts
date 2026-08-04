@@ -12,6 +12,7 @@ type AuthState = {
   unlockWithBiometric: () => Promise<void>;
   lock: () => Promise<void>;
   forceLocked: () => void;
+  markDestroyed: () => void;
 };
 
 const message = (error: unknown) =>
@@ -70,4 +71,5 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
   forceLocked: () => set({ unlocked: false }),
+  markDestroyed: () => set({ unlocked: false, vaultExists: false, error: null }),
 }));

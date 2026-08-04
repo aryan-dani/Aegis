@@ -1,12 +1,15 @@
+import { useState } from "react";
 import {
   Clock,
   Database,
   Download,
   Fingerprint,
   Folder,
-  FolderOpen,
   Import,
+  KeyRound,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { AegisLogo } from "@/components/AegisLogo";
 import { UpdatePanel } from "@/components/UpdatePanel";
 import { Button } from "@/components/ui/button";
@@ -15,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api } from "@/lib/ipc";
+import { clearWindowsHelloCredential } from "@/lib/windowsHello";
 import type { BiometricStatus } from "@/types";
 
 export type SettingsPanelProps = {
@@ -38,10 +43,66 @@ export type SettingsPanelProps = {
   importBackup: () => Promise<void>;
   importBitwarden: () => Promise<void>;
   importFolderPicker: () => Promise<void>;
-  importPersonalFolder: () => Promise<void>;
+  onMasterPasswordChanged: () => void;
+  onVaultDestroyed: () => void;
 };
 
 export function SettingsPanel(props: SettingsPanelProps) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [rekeyBusy, setRekeyBusy] = useState(false);
+  const [destroyPassword, setDestroyPassword] = useState("");
+  const [destroyConfirm, setDestroyConfirm] = useState("");
+  const [destroyBusy, setDestroyBusy] = useState(false);
+
+  async function changeMasterPassword() {
+    if (newPassword.length < 12) {
+      toast.error("New master password must be at least 12 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New password confirmation does not match");
+      return;
+    }
+    setRekeyBusy(true);
+    try {
+      await api.changeMasterPassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      clearWindowsHelloCredential();
+      props.onMasterPasswordChanged();
+      toast.success("Master password changed", {
+        description: "Windows Hello was cleared — re-enable it if you want quick unlock.",
+      });
+    } catch (cause) {
+      toast.error("Could not change master password", { description: String(cause) });
+    } finally {
+      setRekeyBusy(false);
+    }
+  }
+
+  async function destroyVault() {
+    if (destroyConfirm.trim().toUpperCase() !== "DESTROY") {
+      toast.error('Type DESTROY to confirm vault deletion');
+      return;
+    }
+    setDestroyBusy(true);
+    try {
+      await api.destroyVault(destroyPassword);
+      setDestroyPassword("");
+      setDestroyConfirm("");
+      clearWindowsHelloCredential();
+      props.onVaultDestroyed();
+      toast.success("Vault destroyed");
+    } catch (cause) {
+      toast.error("Could not destroy vault", { description: String(cause) });
+    } finally {
+      setDestroyBusy(false);
+    }
+  }
+
   return (
     <div className="aegis-panel h-full overflow-auto rounded-none border-0 lg:rounded-[28px] lg:border">
       <div className="border-b bg-background/35 px-6 py-6">
@@ -124,8 +185,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     min={30}
                     type="number"
                     value={props.inactivitySeconds}
-                    onBlur={(event) => props.updateTimeout(Number(event.target.value))}
-                    onChange={(event) => props.setInactivitySeconds(Number(event.target.value))}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      props.setInactivitySeconds(next);
+                      void props.updateTimeout(next);
+                    }}
                   />
                   <span className="text-sm text-muted-foreground">seconds</span>
                 </div>
@@ -141,8 +205,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <div>
                 <Label>Windows Hello unlock</Label>
                 <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  Convenience unlock for this Windows profile. The vault key is protected with
-                  Windows DPAPI after an operating-system verification.
+                  Convenience unlock for this Windows profile. Windows Hello confirms you in the app
+                  window, then Aegis unwraps the vault key protected with DPAPI.
                 </p>
               </div>
             </div>
@@ -243,15 +307,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <Button
                   className="w-full"
                   disabled={props.importing}
-                  onClick={props.importPersonalFolder}
-                >
-                  {props.importing ? <Spinner /> : <FolderOpen className="size-4" />}
-                  Import Personal Documents
-                </Button>
-                <Button
-                  className="w-full"
-                  disabled={props.importing}
-                  variant="secondary"
                   onClick={props.importFolderPicker}
                 >
                   {props.importing ? <Spinner /> : <Folder className="size-4" />}
@@ -259,6 +314,91 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 </Button>
               </TabsContent>
             </Tabs>
+          </div>
+
+          <div className="aegis-glass rounded-2xl p-5">
+            <div className="flex items-start gap-4">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border bg-card">
+                <KeyRound className="size-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <Label>Change master password</Label>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Re-encrypts the vault database and document blobs with a new key. Windows Hello
+                  must be re-enabled afterward.
+                </p>
+                <div className="mt-4 space-y-3">
+                  <Input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                    placeholder="Current master password"
+                  />
+                  <Input
+                    type="password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    placeholder="New master password (min 12)"
+                  />
+                  <Input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    placeholder="Confirm new master password"
+                  />
+                  <Button
+                    className="w-full"
+                    disabled={
+                      rekeyBusy ||
+                      currentPassword.length < 12 ||
+                      newPassword.length < 12 ||
+                      newPassword !== confirmPassword
+                    }
+                    onClick={changeMasterPassword}
+                  >
+                    {rekeyBusy ? <Spinner /> : <KeyRound className="size-4" />}
+                    Change master password
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="aegis-glass rounded-2xl border-destructive/30 p-5">
+            <div className="flex items-start gap-4">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-destructive/40 bg-card text-destructive">
+                <Trash2 className="size-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <Label>Destroy vault</Label>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Permanently deletes the encrypted database, document blobs, and Windows Hello key
+                  from this device. This cannot be undone.
+                </p>
+                <div className="mt-4 space-y-3">
+                  <Input
+                    type="password"
+                    value={destroyPassword}
+                    onChange={(event) => setDestroyPassword(event.target.value)}
+                    placeholder="Master password"
+                  />
+                  <Input
+                    value={destroyConfirm}
+                    onChange={(event) => setDestroyConfirm(event.target.value)}
+                    placeholder='Type DESTROY to confirm'
+                  />
+                  <Button
+                    className="w-full"
+                    disabled={destroyBusy || destroyPassword.length < 12}
+                    variant="destructive"
+                    onClick={destroyVault}
+                  >
+                    {destroyBusy ? <Spinner /> : <Trash2 className="size-4" />}
+                    Destroy vault forever
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

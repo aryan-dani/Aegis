@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, FileText, Pencil, Trash2, User } from "lucide-react";
+import { Check, Copy, ExternalLink, FileText, Pencil, Trash2, User } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -26,10 +26,24 @@ type EntryRowProps = {
   onOpen: () => void;
 };
 
+function httpUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withScheme);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function EntryRow({ entry, onDelete, onOpen }: EntryRowProps) {
   const document = isDocument(entry);
   const [copied, setCopied] = useState<"password" | "username" | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const siteUrl = !document ? httpUrl(entry.url) : null;
 
   async function copy(kind: "password" | "username") {
     const value = kind === "password" ? entry.password : entry.username;
@@ -43,6 +57,18 @@ export function EntryRow({ entry, onDelete, onOpen }: EntryRowProps) {
       description: "Clipboard clears in 30 seconds.",
     });
     window.setTimeout(() => setCopied((current) => (current === kind ? null : current)), 1500);
+  }
+
+  async function openSite() {
+    if (!siteUrl) {
+      toast.error("No valid URL to open");
+      return;
+    }
+    try {
+      await api.openExternalUrl(siteUrl);
+    } catch (cause) {
+      toast.error("Could not open URL", { description: String(cause) });
+    }
   }
 
   return (
@@ -75,6 +101,17 @@ export function EntryRow({ entry, onDelete, onOpen }: EntryRowProps) {
           </Badge>
         ) : null}
         <div className="flex items-center gap-0.5">
+          {siteUrl ? (
+            <Button
+              aria-label="Open website"
+              size="icon-sm"
+              title="Open website"
+              variant="ghost"
+              onClick={openSite}
+            >
+              <ExternalLink className="size-4" />
+            </Button>
+          ) : null}
           {!document && entry.username ? (
             <Button
               aria-label="Copy username"

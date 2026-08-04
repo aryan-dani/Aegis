@@ -48,6 +48,15 @@ impl AppState {
         inner.key.as_deref().copied().ok_or(AegisError::Locked)
     }
 
+    pub fn touch_activity(&self) -> Result<()> {
+        let mut inner = self.inner.lock().map_err(|_| AegisError::Locked)?;
+        if inner.key.is_none() {
+            return Err(AegisError::Locked);
+        }
+        inner.last_activity = Instant::now();
+        Ok(())
+    }
+
     pub fn is_unlocked(&self) -> bool {
         self.inner
             .lock()

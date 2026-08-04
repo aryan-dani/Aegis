@@ -36,13 +36,10 @@ import {
 } from "@/store/vaultStore";
 import type { BiometricStatus, DocumentMetaInput, EntryInput, VaultEntry } from "@/types";
 
-const PERSONAL_DOCUMENTS =
-  "C:\\Users\\dania\\Documents\\Stuff\\Personal_Documents";
-
 type VaultListView = Exclude<VaultNavView, "settings">;
 
 export function VaultScreen() {
-  const { lock } = useAuthStore();
+  const { lock, markDestroyed } = useAuthStore();
   const {
     entries,
     folders,
@@ -50,6 +47,7 @@ export function VaultScreen() {
     loaded,
     loading,
     error,
+    skippedCorrupt,
     load,
     add,
     update,
@@ -85,6 +83,30 @@ export function VaultScreen() {
     refreshBiometric().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
+
+  useEffect(() => {
+    if (skippedCorrupt > 0 && loaded) {
+      toast.warning(`Skipped ${skippedCorrupt} unreadable vault entr${skippedCorrupt === 1 ? "y" : "ies"}`, {
+        description: "Those blobs could not be decrypted and were left on disk.",
+      });
+    }
+  }, [skippedCorrupt, loaded]);
+
+  useEffect(() => {
+    let last = 0;
+    const touch = () => {
+      const now = Date.now();
+      if (now - last < 15_000) return;
+      last = now;
+      api.touchActivity().catch(() => undefined);
+    };
+    window.addEventListener("pointerdown", touch);
+    window.addEventListener("keydown", touch);
+    return () => {
+      window.removeEventListener("pointerdown", touch);
+      window.removeEventListener("keydown", touch);
+    };
+  }, []);
 
   const passwordCount = useMemo(() => entries.filter(isPassword).length, [entries]);
   const documentCount = useMemo(() => entries.filter(isDocument).length, [entries]);
@@ -205,9 +227,17 @@ export function VaultScreen() {
         filters: [{ name: "Aegis encrypted backup", extensions: ["json"] }],
       });
       if (!path) return;
-      await api.exportVault(exportPassphrase, path);
+      const result = await api.exportVault(exportPassphrase, path);
       setExportPassphrase("");
-      toast.success("Encrypted backup exported");
+      if (result.missing_blob_count > 0) {
+        toast.warning("Backup exported with gaps", {
+          description: `${result.entry_count} items saved, but ${result.missing_blob_count} document file${result.missing_blob_count === 1 ? " was" : "s were"} missing and omitted.`,
+        });
+      } else {
+        toast.success("Encrypted backup exported", {
+          description: `${result.entry_count} items · ${result.document_count} document blob${result.document_count === 1 ? "" : "s"}`,
+        });
+      }
     } catch (cause) {
       toast.error("Export failed", { description: String(cause) });
     } finally {
@@ -227,7 +257,9 @@ export function VaultScreen() {
       const imported = await api.importEncryptedBackup(backupPassphrase, path);
       setBackupPassphrase("");
       await load();
-      toast.success(`Imported ${imported.length} items`);
+      toast.success(`Merged ${imported.length} items from backup`, {
+        description: "Existing IDs were kept; colliding IDs were remapped as new entries.",
+      });
     } catch (cause) {
       toast.error("Import failed", { description: String(cause) });
     } finally {
@@ -269,7 +301,7 @@ export function VaultScreen() {
       const list = Array.isArray(paths) ? paths : [paths];
       let count = 0;
       for (const path of list) {
-        await importDocument(path, "Personal Documents", ["imported"]);
+        await importDocument(path, null, []);
         count += 1;
       }
       toast.success(`Encrypted ${count} document${count === 1 ? "" : "s"} into the vault`);
@@ -281,24 +313,12 @@ export function VaultScreen() {
     }
   }
 
-  async function importPersonalFolder() {
-    setImporting(true);
-    try {
-      const result = await importDocumentsFromFolder(PERSONAL_DOCUMENTS, "Personal Documents");
-      toastFolderImport(result.imported, result.skipped, "No importable files found in Personal Documents");
-    } catch (cause) {
-      toast.error("Could not import Personal Documents", { description: String(cause) });
-    } finally {
-      setImporting(false);
-    }
-  }
-
   async function importFolderPicker() {
     setImporting(true);
     try {
       const path = await open({ directory: true, multiple: false });
       if (typeof path !== "string") return;
-      const result = await importDocumentsFromFolder(path, "Imported Documents");
+      const result = await importDocumentsFromFolder(path, null);
       toastFolderImport(result.imported, result.skipped, "No importable files found in that folder");
     } catch (cause) {
       toast.error("Folder import failed", { description: String(cause) });
@@ -334,6 +354,7 @@ export function VaultScreen() {
       await win.show();
       await win.setFocus();
       await new Promise((resolve) => window.setTimeout(resolve, 200));
+      // Interactive Hello must run in the WebView; Rust only DPAPI-wraps the key.
       await enrollWindowsHello();
       await api.enrollBiometric();
       await refreshBiometric();
@@ -476,9 +497,9 @@ export function VaultScreen() {
                       Add password
                     </Button>
                   ) : (
-                    <Button disabled={importing} onClick={importPersonalFolder}>
+                    <Button disabled={importing} onClick={importFolderPicker}>
                       {importing ? <Spinner /> : <FolderOpen className="size-4" />}
-                      Import Personal Documents
+                      Import folder
                     </Button>
                   )}
                 </>
@@ -511,7 +532,13 @@ export function VaultScreen() {
               importBackup={importBackup}
               importBitwarden={importBitwarden}
               importFolderPicker={importFolderPicker}
-              importPersonalFolder={importPersonalFolder}
+              onMasterPasswordChanged={() => {
+                refreshBiometric().catch(() => undefined);
+              }}
+              onVaultDestroyed={() => {
+                useVaultStore.getState().wipe();
+                markDestroyed();
+              }}
             />
           ) : (
             <>
@@ -585,7 +612,7 @@ export function VaultScreen() {
                     setDialogOpen(true);
                   }}
                   onAddDocuments={importDocuments}
-                  onImportPersonal={importPersonalFolder}
+                  onImportFolder={importFolderPicker}
                   onClearFilters={clearFilters}
                 />
               )}
@@ -631,14 +658,14 @@ function EmptyState({
   view,
   onAddPassword,
   onAddDocuments,
-  onImportPersonal,
+  onImportFolder,
   onClearFilters,
 }: {
   hasFilters: boolean;
   view: "all" | "passwords" | "documents";
   onAddPassword: () => void;
   onAddDocuments: () => void;
-  onImportPersonal: () => void;
+  onImportFolder: () => void;
   onClearFilters: () => void;
 }) {
   const title = hasFilters
@@ -680,9 +707,9 @@ function EmptyState({
                 Add documents
               </Button>
               {view === "documents" || view === "all" ? (
-                <Button variant="outline" onClick={onImportPersonal}>
+                <Button variant="outline" onClick={onImportFolder}>
                   <FolderOpen className="size-4" />
-                  Import Personal Documents
+                  Import folder
                 </Button>
               ) : null}
             </>

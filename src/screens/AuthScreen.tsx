@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { StrengthMeter } from "@/components/StrengthMeter";
 import { api } from "@/lib/ipc";
-import { hasWindowsHelloCredential, verifyWindowsHello } from "@/lib/windowsHello";
+import { enrollWindowsHello, hasWindowsHelloCredential, verifyWindowsHello } from "@/lib/windowsHello";
 import { useAuthStore } from "@/store/authStore";
 import type { BiometricStatus } from "@/types";
 
@@ -71,7 +71,12 @@ export function AuthScreen() {
       await win.show();
       await win.setFocus();
       await new Promise((resolve) => window.setTimeout(resolve, 200));
-      await verifyWindowsHello();
+      // WebAuthn must run in the WebView. If the local credential was lost, re-bind it.
+      if (hasWindowsHelloCredential()) {
+        await verifyWindowsHello();
+      } else {
+        await enrollWindowsHello();
+      }
       await unlockWithBiometric();
     } catch (cause) {
       setHelloError(String(cause));
@@ -81,7 +86,7 @@ export function AuthScreen() {
   }
 
   const canSubmit = password.length >= 12 && (!creating || password === confirm);
-  const showHello = !creating && biometric?.enrolled && helloAvailable && hasWindowsHelloCredential();
+  const showHello = !creating && Boolean(biometric?.enrolled && helloAvailable);
 
   return (
     <main className="aegis-app-bg relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-10">

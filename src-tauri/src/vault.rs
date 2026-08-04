@@ -87,6 +87,13 @@ struct ExportPayloadV2 {
     documents: Vec<ExportDocumentBlob>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExportResult {
+    pub entry_count: u32,
+    pub document_count: u32,
+    pub missing_blob_count: u32,
+}
+
 #[tauri::command]
 pub fn add_entry(
     app: AppHandle,
@@ -132,8 +139,14 @@ pub fn get_entry(app: AppHandle, state: State<'_, AppState>, id: String) -> Resu
     decrypt_entry(&key, &blob)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ListEntriesResult {
+    pub entries: Vec<VaultEntry>,
+    pub skipped_corrupt: u32,
+}
+
 #[tauri::command]
-pub fn list_entries(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<VaultEntry>> {
+pub fn list_entries(app: AppHandle, state: State<'_, AppState>) -> Result<ListEntriesResult> {
     let key = Zeroizing::new(state.key_copy()?);
     let conn = db::open_encrypted(&app, &key)?;
     let mut entries = Vec::new();
@@ -150,7 +163,10 @@ pub fn list_entries(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Va
     if skipped > 0 {
         eprintln!("aegis: skipped {skipped} corrupt or unreadable vault entr(y/ies)");
     }
-    Ok(entries)
+    Ok(ListEntriesResult {
+        entries,
+        skipped_corrupt: skipped,
+    })
 }
 
 #[tauri::command]
@@ -160,7 +176,7 @@ pub fn search_vault(
     query: String,
 ) -> Result<Vec<VaultEntry>> {
     let needle = query.trim().to_lowercase();
-    let entries = list_entries(app, state)?;
+    let entries = list_entries(app, state)?.entries;
     if needle.is_empty() {
         return Ok(entries);
     }
@@ -243,7 +259,7 @@ pub fn delete_entry(app: AppHandle, state: State<'_, AppState>, id: String) -> R
 #[tauri::command]
 pub fn list_folders(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<String>> {
     let mut folders = BTreeSet::new();
-    for entry in list_entries(app, state)? {
+    for entry in list_entries(app, state)?.entries {
         if let Some(folder) = entry.folder {
             folders.insert(folder);
         }
@@ -254,7 +270,7 @@ pub fn list_folders(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<St
 #[tauri::command]
 pub fn list_tags(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<String>> {
     let mut tags = BTreeSet::new();
-    for entry in list_entries(app, state)? {
+    for entry in list_entries(app, state)?.entries {
         for tag in entry.tags {
             tags.insert(tag);
         }
@@ -308,14 +324,15 @@ pub fn export_vault(
     state: State<'_, AppState>,
     passphrase: String,
     path: String,
-) -> Result<()> {
+) -> Result<ExportResult> {
     if passphrase.len() < 12 {
         return Err(AegisError::InvalidInput(
             "export passphrase must be at least 12 characters".to_string(),
         ));
     }
     let key = Zeroizing::new(state.key_copy()?);
-    let entries = list_entries(app.clone(), state)?;
+    let entries = list_entries(app.clone(), state)?.entries;
+    let entry_count = entries.len() as u32;
     let mut documents = Vec::new();
     let mut missing_blobs = 0u32;
     for entry in &entries {
@@ -344,6 +361,7 @@ pub fn export_vault(
         eprintln!("aegis: export continued with {missing_blobs} missing document blob(s)");
     }
 
+    let document_count = documents.len() as u32;
     let payload = ExportPayloadV2 {
         entries,
         documents,
@@ -361,8 +379,14 @@ pub fn export_vault(
         exported_at: chrono::Utc::now().to_rfc3339(),
     };
     let path = validate_user_file_path(&path, false)?;
-    fs::write(path, serde_json::to_string_pretty(&file)?)?;
-    Ok(())
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, serde_json::to_string_pretty(&file)?)?;
+    fs::rename(temp, path)?;
+    Ok(ExportResult {
+        entry_count,
+        document_count,
+        missing_blob_count: missing_blobs,
+    })
 }
 
 #[tauri::command]
@@ -537,6 +561,38 @@ pub fn decrypt_entry(key: &[u8; 32], blob: &[u8]) -> Result<VaultEntry> {
     let entry: VaultEntry = serde_json::from_slice(&plaintext)?;
     plaintext.zeroize();
     Ok(normalize_entry(entry))
+}
+
+/// Opens an http(s) URL in the default browser. Rejects other schemes.
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<()> {
+    let trimmed = url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err(AegisError::InvalidInput(
+            "only http(s) URLs can be opened".to_string(),
+        ));
+    }
+    if trimmed.bytes().any(|b| b == 0 || b.is_ascii_control()) {
+        return Err(AegisError::InvalidInput("invalid URL".to_string()));
+    }
+
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", trimmed])
+            .spawn()
+            .map_err(|_| AegisError::Filesystem)?;
+        return Ok(());
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = trimmed;
+        Err(AegisError::InvalidInput(
+            "open URL is only available on Windows in this build".to_string(),
+        ))
+    }
 }
 
 pub fn clean_optional(value: Option<String>) -> Option<String> {
