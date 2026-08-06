@@ -28,21 +28,36 @@ Or auto-bump the patch version from `package.json`:
 powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Notes "Describe the change"
 ```
 
-## Automatic Releases
+## Continuous Integration
 
-Pushes to `main` trigger GitHub Actions (`.github/workflows/release.yml`) to:
+Pushes to `main` and pull requests trigger GitHub Actions (`.github/workflows/ci.yml`) to:
 
-1. Skip commits whose message already starts with `release:` (avoids loops).
-2. Auto-increment the patch version.
-3. Build and sign the Windows installer.
-4. Commit `release: vX.Y.Z`, tag, push, and publish GitHub Release assets including `latest.json`.
+1. Install dependencies.
+2. Build the frontend (`pnpm build`).
+3. Run Rust tests (`cargo test`).
+
+CI validates changes only. It does not bump versions, commit, tag, or publish releases.
+
+## Publishing Releases
+
+Releases are intentional. Use one of these paths when you are ready to ship:
+
+### GitHub Actions (recommended)
+
+1. Open **Actions → Release → Run workflow** on `main`.
+2. Optionally add release notes.
+3. The workflow auto-increments the patch version, builds and signs the Windows installer, commits `release: vX.Y.Z`, tags, pushes, and publishes GitHub Release assets including `latest.json`.
 
 Required repository secrets:
 
 - `TAURI_SIGNING_PRIVATE_KEY` — contents of `%USERPROFILE%\.aegis\aegis-updater.key`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — optional; only if the key is password-protected
 
-You can also run the workflow manually from the Actions tab (`workflow_dispatch`).
+### Local release script
+
+Run `scripts\release.ps1` from your machine when you have signing keys configured locally (see examples above).
+
+After a release workflow completes, run `git pull --ff-only` locally to sync the version-bump commit pushed by CI.
 
 ## Required Files
 

@@ -1,31 +1,23 @@
-name: Release
+name: CI
 
 on:
-  workflow_dispatch:
-    inputs:
-      notes:
-        description: Optional release notes
-        required: false
-        default: ""
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 concurrency:
-  group: aegis-release
-  cancel-in-progress: false
-
-permissions:
-  contents: write
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  release:
+  build-and-test:
     runs-on: windows-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -67,21 +59,18 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Publish signed release
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Run Rust tests
         shell: pwsh
         env:
-          CI: "true"
           VCPKG_ROOT: C:\vcpkg
           OPENSSL_DIR: C:\vcpkg\installed\x64-windows-static
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENSSL_LIB_DIR: C:\vcpkg\installed\x64-windows-static\lib
+          OPENSSL_INCLUDE_DIR: C:\vcpkg\installed\x64-windows-static\include
+          OPENSSL_STATIC: "1"
+          OPENSSL_NO_VENDOR: "1"
         run: |
-          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
-            throw "Missing repository secret TAURI_SIGNING_PRIVATE_KEY. Add the contents of %USERPROFILE%\.aegis\aegis-updater.key as a GitHub Actions secret."
-          }
-          $notes = "${{ github.event.inputs.notes }}"
-          if (-not $notes) {
-            $notes = "Manual release from commit $($env:GITHUB_SHA.Substring(0,7))"
-          }
-          powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Notes $notes
+          $env:INCLUDE = "$($env:OPENSSL_INCLUDE_DIR);$($env:INCLUDE)"
+          cargo test --manifest-path src-tauri/Cargo.toml

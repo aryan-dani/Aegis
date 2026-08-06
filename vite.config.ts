@@ -5,6 +5,7 @@ import path from "node:path";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+const marketing = process.env.VITE_AEGIS_MARKETING === "true";
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -12,6 +13,19 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      ...(marketing
+        ? {
+            "@/lib/ipc": path.resolve(__dirname, "./src/lib/ipc.marketing.ts"),
+          }
+        : {}),
+    },
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        marketing: path.resolve(__dirname, "marketing.html"),
+      },
     },
   },
 

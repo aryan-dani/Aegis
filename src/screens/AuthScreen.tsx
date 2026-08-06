@@ -23,6 +23,17 @@ export function AuthScreen() {
   const [helloError, setHelloError] = useState<string | null>(null);
   const creating = !vaultExists;
   const mismatch = creating && Boolean(confirm) && password !== confirm;
+  const marketingDemoPassword =
+    import.meta.env.VITE_AEGIS_MARKETING === "true"
+      ? new URLSearchParams(window.location.search).get("demoPassword")
+      : null;
+
+  useEffect(() => {
+    if (creating && marketingDemoPassword) {
+      setPassword(marketingDemoPassword);
+      setConfirm(marketingDemoPassword);
+    }
+  }, [creating, marketingDemoPassword]);
 
   useEffect(() => {
     if (!vaultExists) {

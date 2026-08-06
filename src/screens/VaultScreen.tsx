@@ -38,7 +38,39 @@ import type { BiometricStatus, DocumentMetaInput, EntryInput, VaultEntry } from 
 
 type VaultListView = Exclude<VaultNavView, "settings">;
 
-export function VaultScreen() {
+type MarketingInitial = {
+  view?: VaultNavView;
+  entryDialog?: boolean;
+  entryDraft?: EntryInput;
+  documentDialog?: boolean;
+  documentEntry?: VaultEntry | null;
+};
+
+function marketingEntryFromDraft(draft: EntryInput): VaultEntry {
+  const now = new Date().toISOString();
+  return {
+    kind: "password",
+    id: "",
+    title: "Demo Bank",
+    url: draft.url,
+    username: draft.username,
+    password: draft.password,
+    notes: draft.notes,
+    folder: draft.folder,
+    tags: draft.tags,
+    created_at: now,
+    updated_at: now,
+    filename: "",
+    mime_type: "",
+    size_bytes: 0,
+  };
+}
+
+type VaultScreenProps = {
+  marketingInitial?: MarketingInitial;
+};
+
+export function VaultScreen({ marketingInitial }: VaultScreenProps = {}) {
   const { lock, markDestroyed } = useAuthStore();
   const {
     entries,
@@ -58,12 +90,22 @@ export function VaultScreen() {
   } = useVaultStore();
   const { hibpEnabled, setHibpEnabled, inactivitySeconds, setInactivitySeconds } = useUiStore();
 
-  const [view, setView] = useState<VaultNavView>("all");
-  const [lastVaultView, setLastVaultView] = useState<VaultListView>("all");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<VaultEntry | null>(null);
-  const [documentOpen, setDocumentOpen] = useState(false);
-  const [activeDocument, setActiveDocument] = useState<VaultEntry | null>(null);
+  const [view, setView] = useState<VaultNavView>(marketingInitial?.view ?? "all");
+  const [lastVaultView, setLastVaultView] = useState<VaultListView>(
+    marketingInitial?.view && marketingInitial.view !== "settings"
+      ? marketingInitial.view
+      : "all",
+  );
+  const [dialogOpen, setDialogOpen] = useState(Boolean(marketingInitial?.entryDialog));
+  const [editing, setEditing] = useState<VaultEntry | null>(() =>
+    marketingInitial?.entryDialog && marketingInitial.entryDraft
+      ? marketingEntryFromDraft(marketingInitial.entryDraft)
+      : null,
+  );
+  const [documentOpen, setDocumentOpen] = useState(Boolean(marketingInitial?.documentDialog));
+  const [activeDocument, setActiveDocument] = useState<VaultEntry | null>(
+    marketingInitial?.documentEntry ?? null,
+  );
   const [folderFilter, setFolderFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -76,6 +118,10 @@ export function VaultScreen() {
   const [helloBusy, setHelloBusy] = useState(false);
 
   useEffect(() => {
+    if (marketingInitial) {
+      refreshBiometric().catch(() => undefined);
+      return;
+    }
     load();
     api.setInactivityTimeout(inactivitySeconds).catch((cause) => {
       toast.error("Could not apply auto-lock timeout", { description: String(cause) });
